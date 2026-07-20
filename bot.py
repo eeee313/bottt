@@ -33,7 +33,7 @@ ROLE_LOG_CHANNEL_ID = 1528865980988788861          # transcript role log
 MOD_LOG_CHANNEL_ID = 1528865970699898971           # moderation log
 TRANSCRIPTS_CHANNEL_ID = 1528865962588373154       # ticket transcripts
 TICKET_CATEGORY_ID = 1527856283498184876           # middleman ticket category
-SUPPORT_TICKET_CATEGORY_ID = 1528491782491345107   # /support ticket category
+SUPPORT_TICKET_CATEGORY_ID = 1528491782491345107   # /supportpanel ticket category
 
 # ---- Roles (lowest -> highest authority) ----
 ROLE_GIVEAWAY_PING = 1528463410562601131
@@ -533,9 +533,9 @@ async def close_ticket_channel(channel: discord.TextChannel, closer: discord.Mem
 #  SLASH COMMANDS - TICKET MANAGEMENT
 # =========================================================
 
-@bot.tree.command(name="support", description="Post the support ticket panel in this channel.")
+@bot.tree.command(name="middleman", description="Post the middleman request panel in this channel.")
 @app_commands.checks.has_permissions(manage_guild=True)
-async def support_cmd(interaction: discord.Interaction):
+async def middleman_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
         title="Levi's MM Services | MM Service",
         description=(
@@ -551,6 +551,26 @@ async def support_cmd(interaction: discord.Interaction):
     )
     embed.set_footer(text="Powered by Levi's MM Services")
     await interaction.channel.send(embed=embed, view=TicketRequestView())
+    await interaction.response.send_message("✅ Middleman panel posted.", ephemeral=True)
+
+
+@bot.tree.command(name="supportpanel", description="Post the support ticket panel in this channel.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def supportpanel_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Levi's MM Services | Support",
+        description=(
+            "Need help with something that isn't a trade?\n\n"
+            "Click the button below to open a support ticket and a staff member "
+            "will be with you shortly.\n\n"
+            "**Usage Conditions:**\n"
+            "• Please describe your issue clearly when opening a ticket.\n"
+            "• Fake or troll tickets will result in punishments."
+        ),
+        color=EMBED_COLOR,
+    )
+    embed.set_footer(text="Powered by Levi's MM Services")
+    await interaction.channel.send(embed=embed, view=SupportPanelView())
     await interaction.response.send_message("✅ Support panel posted.", ephemeral=True)
 
 
@@ -883,7 +903,8 @@ async def help_cmd(ctx: commands.Context):
     embed.add_field(
         name="Tickets (slash commands)",
         value=(
-            "`/support` - post the support panel\n"
+            "`/middleman` - post the middleman request panel\n"
+            "`/supportpanel` - post the support ticket panel\n"
             "`/add @user` - add a user to the current ticket\n"
             "`/close` - close the current ticket\n"
             "`/transfer @user` - transfer ticket claim"
