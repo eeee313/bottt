@@ -771,4 +771,3 @@ async def scamawareness(interaction: discord.Interaction):
         inline=False
     )
     embed.add_field(
-        name
