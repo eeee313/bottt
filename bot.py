@@ -42,7 +42,6 @@ class Database:
             )
         ''')
 
-        # Migration for DBs created before ticket_type existed
         try:
             self.cursor.execute("ALTER TABLE tickets ADD COLUMN ticket_type TEXT DEFAULT 'middleman'")
             self.conn.commit()
@@ -202,7 +201,7 @@ class MiddlemanBot(commands.Bot):
             'Auto Role Member': 1526273333811876071
         }
 
-        # Role requirements (hits or price)
+        # Role requirements
         self.role_requirements = {
             'Trial Middleman': {'hits': 5, 'price': 5},
             'Middleman': {'hits': 10, 'price': 10, 'discount': 5},
@@ -236,13 +235,13 @@ class MiddlemanBot(commands.Bot):
 
         # Channel IDs
         self.support_channel = 1528462676446023841
-        self.support_category = 1528491782491345107          # category for middleman-request tickets
-        self.general_support_category = 1528491782491345107  # TODO: set this to your dedicated support-ticket category ID
+        self.support_category = 1528491782491345107
+        self.general_support_category = 1528491782491345107
         self.middleman_category = 1527856283498184876
         self.welcome_channel = 1527829658979012608
         self.setup_role = 1526271680371232788
 
-        # Roles allowed to see/handle middleman (trade) tickets
+        # Roles allowed to see/handle middleman tickets
         self.middleman_staff_roles = [
             'Trial Middleman', 'Middleman', 'Lead Middleman',
             'Moderator', 'Coordinator', 'Overseer',
@@ -250,7 +249,7 @@ class MiddlemanBot(commands.Bot):
             'Head of Staff', 'President'
         ]
 
-        # Roles allowed to see/handle general support tickets (Moderator and above)
+        # Roles allowed to see/handle general support tickets
         self.support_staff_roles = [
             'Moderator', 'Coordinator', 'Overseer',
             'Head of Management', 'Head of Coordination', 'Head of Operations',
@@ -321,6 +320,13 @@ class MiddlemanBot(commands.Bot):
         )
         return self.db.cursor.fetchone() is not None
 
+    def get_role_mention(self, role_name):
+        """Get a role mention string for the given role name"""
+        role_id = self.role_ids.get(role_name)
+        if role_id:
+            return f"<@&{role_id}>"
+        return f"@{role_name}"
+
 
 # Bot instance
 bot = MiddlemanBot()
@@ -344,7 +350,6 @@ async def on_ready():
 @bot.event
 async def on_member_join(member):
     """Auto role and welcome message when someone joins"""
-    # Add auto role
     role = member.guild.get_role(bot.role_ids['Auto Role Member'])
     if role:
         try:
@@ -355,7 +360,6 @@ async def on_member_join(member):
         except Exception as e:
             print(f"❌ Error adding role to {member.name}: {e}")
 
-    # Send welcome message
     welcome_channel = bot.get_channel(bot.welcome_channel)
     if welcome_channel:
         embed = discord.Embed(
@@ -436,15 +440,17 @@ async def info_command(ctx):
     role_list = list(bot.role_requirements.keys())
     for i, role in enumerate(role_list):
         req = bot.role_requirements[role]
-        role_ping = f"@[{role}]"
+        role_ping = bot.get_role_mention(role)
         if 'hits' in req:
             if 'discount' in req:
-                requirements += f"**{role_ping}**\n   • {req['hits']} hits OR ${req['price']} | ${req['discount']} if already @[{role_list[i-1]}]\n\n"
+                prev_role_ping = bot.get_role_mention(role_list[i-1]) if i > 0 else ""
+                requirements += f"**{role_ping}**\n   • {req['hits']} hits OR ${req['price']} | ${req['discount']} if already {prev_role_ping}\n\n"
             else:
                 requirements += f"**{role_ping}**\n   • {req['hits']} hits OR ${req['price']}\n\n"
         else:
             if 'discount' in req:
-                requirements += f"**{role_ping}**\n   • ${req['price']} | ${req['discount']} if already @[{role_list[i-1]}]\n\n"
+                prev_role_ping = bot.get_role_mention(role_list[i-1]) if i > 0 else ""
+                requirements += f"**{role_ping}**\n   • ${req['price']} | ${req['discount']} if already {prev_role_ping}\n\n"
             else:
                 requirements += f"**{role_ping}**\n   • ${req['price']}\n\n"
 
@@ -454,33 +460,47 @@ async def info_command(ctx):
 @bot.command(name='perks')
 async def perks_command(ctx):
     """Get role perks - +perks"""
-    perks_text = """⭐ ROLE PERKS - Levi's Middleman Services
+    gp_ping = bot.get_role_mention('Giveaway Pings')
+    tm_ping = bot.get_role_mention('Trial Middleman')
+    m_ping = bot.get_role_mention('Middleman')
+    lm_ping = bot.get_role_mention('Lead Middleman')
+    mod_ping = bot.get_role_mention('Moderator')
+    coord_ping = bot.get_role_mention('Coordinator')
+    ovr_ping = bot.get_role_mention('Overseer')
+    hom_ping = bot.get_role_mention('Head of Management')
+    hoc_ping = bot.get_role_mention('Head of Coordination')
+    hoop_ping = bot.get_role_mention('Head of Operations')
+    hodev_ping = bot.get_role_mention('Head of Dev')
+    hos_ping = bot.get_role_mention('Head of Staff')
+    pres_ping = bot.get_role_mention('President')
 
-**@[GP] Giveaway Pings** — Get this role after mercy is accepted, hitters only.
+    perks_text = f"""⭐ ROLE PERKS - Levi's Middleman Services
 
-**@[TM] Trial Middleman** — Claim tickets, handle tickets, use middleman commands, view transcripts.
+**{gp_ping}** — Get this role after accepting the Mercy Program, hitters only.
 
-**@[M] Middleman** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members.
+**{tm_ping}** — Claim tickets, handle tickets, use middleman commands, view transcripts.
 
-**@[LM] Lead Middleman** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members.
+**{m_ping}** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members.
 
-**@[Mod] Moderator** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members.
+**{lm_ping}** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members.
 
-**@[Coord] Coordinator** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members.
+**{mod_ping}** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members.
 
-**@[Ovr] Overseer** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell Trial Middleman, promote Trial Middleman.
+**{coord_ping}** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members.
 
-**@[HoM] Head of Management** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell and promote Overseer and below.
+**{ovr_ping}** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell Trial Middleman, promote Trial Middleman.
 
-**@[HoC] Head of Coordination** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell and promote Head of Management and below.
+**{hom_ping}** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell and promote Overseer and below.
 
-**@[HoOp] Head of Operations** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell and promote Head of Coordination and below.
+**{hoc_ping}** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell and promote Head of Management and below.
 
-**@[HoDev] Head of Dev** — Develop bots, develop systems, configure bots, manage integrations.
+**{hoop_ping}** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell and promote Head of Coordination and below.
 
-**@[HoS] Head of Staff** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell and promote Head of Operations and below.
+**{hodev_ping}** — Develop bots, develop systems, configure bots, manage integrations.
 
-**@[Pres] President** — Admin perms, can do all perms below, and sell all roles below."""
+**{hos_ping}** — Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell and promote Head of Operations and below.
+
+**{pres_ping}** — Admin perms, can do all perms below, and sell all roles below."""
 
     chunks = [perks_text[i:i+1900] for i in range(0, len(perks_text), 1900)]
     for chunk in chunks:
@@ -681,9 +701,9 @@ async def about(interaction: discord.Interaction):
             "hold each side of a trade until both parties have received what was agreed, removing "
             "the opportunity for either side to scam the other.\n\n"
             "Every member of our middleman team is manually reviewed and promoted based on a "
-            "consistent record of successfully handled trades, referred to internally as \"hits.\" "
-            "Rank within the team reflects experience, not seniority alone, and each tier carries "
-            "additional responsibilities and access within the server.\n\n"
+            "consistent record of successfully handled trades. Rank within the team reflects "
+            "experience, not seniority alone, and each tier carries additional responsibilities "
+            "and access within the server.\n\n"
             "We do not take a cut of trades handled through the free service, and we do not ask "
             "for payment, passwords, or account access at any point in the process. If a user "
             "claiming to represent us asks for either, you should treat it as a scam attempt and "
@@ -740,534 +760,4 @@ async def scamawareness(interaction: discord.Interaction):
         ),
         inline=False
     )
-    embed.add_field(
-        name="Fake Trust or Middleman Sites",
-        value=(
-            "Never conduct a trade through a third-party website, bot, or \"trusted trading "
-            "platform\" that is not explicitly listed as part of this server's official service. "
-            "These are commonly used to intercept items, login credentials, or payment "
-            "information."
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="Pressure and Urgency",
-        value=(
-            "A common tactic is to rush a trade by claiming a limited-time offer, a closing "
-            "window, or that \"someone else is buying it right now.\" Legitimate trades do not "
-            "require you to skip verification steps."
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="Requests for Sensitive Information",
-        value=(
-            "No legitimate middleman, staff member, or representative of this server will ever "
-            "ask for your account password, two-factor authentication codes, payment card "
-            "details, or remote access to your device. Any such request should be treated as an "
-            "active scam attempt."
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="Before You Trade",
-        value=(
-            "Confirm the exact terms of the trade in writing with the other party before "
-            "requesting a middleman, keep screenshots of all agreements, and use the official "
-            "ticket system rather than direct messages whenever possible."
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="If You Believe You Are Being Scammed",
-        value=(
-            "Stop the trade immediately, do not send anything further, and open a ticket to "
-            "report the situation to staff with as much evidence as you can provide."
-        ),
-        inline=False
-    )
-    embed.set_footer(text="Levi's Middleman Services")
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="faq", description="Frequently Asked Questions")
-async def faq(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="Frequently Asked Questions",
-        description="Answers to the questions we're asked most often. If yours isn't covered here, open a support ticket.",
-        color=discord.Color.dark_teal()
-    )
-    embed.add_field(
-        name="How do I request a middleman?",
-        value=(
-            "Open the middleman panel in this server and click \"Request Middleman.\" You will be "
-            "asked for the other trader's information and the details of the trade before a "
-            "ticket is created."
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="Is the middleman service free?",
-        value=(
-            "Yes. There is no fee to use a middleman for a standard trade. Some staff roles "
-            "require reaching a certain number of successful trades (\"hits\") or an optional "
-            "purchase to obtain, but the trading service itself is free to all users."
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="How do I become a middleman?",
-        value=(
-            "New middlemen are brought in through the Mercy Program, accessible with `/mercy`, or "
-            "by meeting the hit and requirement thresholds for a given rank. Full requirements "
-            "are listed with `/info`, and role perks are listed with `/perks`."
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="What are the requirements for each rank?",
-        value=(
-            "Requirements vary by rank and are based on either a minimum number of completed "
-            "trades or a direct purchase, with discounts available for members who already hold "
-            "the rank below. Use `/info` for the full breakdown."
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="How long does a trade take?",
-        value=(
-            "Most tickets are claimed within a few minutes during active hours. Response times "
-            "may be longer outside of peak hours, but every ticket is handled in the order it "
-            "was opened."
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="What happens if the other party doesn't cooperate?",
-        value=(
-            "Do not send any items or currency until your assigned middleman confirms the trade "
-            "is ready to proceed on both sides. If a dispute arises, staff will review the ticket "
-            "and any evidence provided before making a decision."
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="Can I open a ticket for something other than a trade?",
-        value=(
-            "Yes. General account or server issues should go through the support ticket panel, "
-            "not the middleman panel, so they reach the correct team."
-        ),
-        inline=False
-    )
-    embed.set_footer(text="Levi's Middleman Services")
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="vouchadd", description="Add a vouch to a user")
-@app_commands.describe(user="The user to vouch for")
-async def vouchadd(interaction: discord.Interaction, user: discord.Member):
-    bot.db.add_vouch(user.id)
-    count = bot.db.get_vouch_count(user.id)
-    embed = discord.Embed(
-        title="⭐ Vouch Added",
-        description=f"{user.mention} now has {count} vouches!",
-        color=discord.Color.gold()
-    )
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="vouchcount", description="Check a user's vouches")
-@app_commands.describe(user="The user to check")
-async def vouchcount(interaction: discord.Interaction, user: discord.Member):
-    count = bot.db.get_vouch_count(user.id)
-    embed = discord.Embed(
-        title="📊 Vouch Count",
-        description=f"{user.mention} has **{count}** vouches",
-        color=discord.Color.blue()
-    )
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="removevouches", description="Remove vouches from a user")
-@app_commands.describe(user="The user", count="Number of vouches to remove (leave empty to delete all)")
-async def removevouches(interaction: discord.Interaction, user: discord.Member, count: int = 0):
-    if not bot.has_permission(interaction.user, ['Head of Management', 'Head of Coordination', 'Head of Operations', 'Head of Staff', 'President']):
-        await interaction.response.send_message("❌ You don't have permission!", ephemeral=True)
-        return
-
-    bot.db.remove_vouches(user.id, count)
-    await interaction.response.send_message(f"✅ Removed {count if count > 0 else 'all'} vouches from {user.mention}", ephemeral=True)
-
-@bot.tree.command(name="manageban", description="Ban/unban a user")
-@app_commands.describe(action="ban or unban", user="The user to manage")
-async def manageban(interaction: discord.Interaction, action: str, user: discord.User):
-    if not bot.has_permission(interaction.user, ['Overseer', 'Head of Management', 'Head of Coordination', 'Head of Operations', 'Head of Staff', 'President']):
-        await interaction.response.send_message("❌ You don't have permission!", ephemeral=True)
-        return
-
-    if action.lower() == 'ban':
-        await interaction.guild.ban(user)
-        await interaction.response.send_message(f"✅ Banned {user.mention}", ephemeral=True)
-    elif action.lower() == 'unban':
-        await interaction.guild.unban(user)
-        await interaction.response.send_message(f"✅ Unbanned {user.mention}", ephemeral=True)
-    else:
-        await interaction.response.send_message("❌ Use 'ban' or 'unban'", ephemeral=True)
-
-@bot.tree.command(name="managerole", description="Add or remove a role from someone")
-@app_commands.describe(action="add or remove", user="The user", role="The role to manage")
-async def managerole(interaction: discord.Interaction, action: str, user: discord.Member, role: discord.Role):
-    if not bot.has_permission(interaction.user, ['Moderator', 'Coordinator', 'Overseer', 'Head of Management', 'Head of Coordination', 'Head of Operations', 'Head of Staff', 'President']):
-        await interaction.response.send_message("❌ You don't have permission!", ephemeral=True)
-        return
-
-    if not bot.can_manage_role(interaction.user, role):
-        await interaction.response.send_message("❌ You cannot manage a role higher than or equal to your highest role!", ephemeral=True)
-        return
-
-    try:
-        if action.lower() == 'add':
-            await user.add_roles(role)
-            await interaction.response.send_message(f"✅ Added {role.name} to {user.mention}", ephemeral=True)
-        elif action.lower() == 'remove':
-            await user.remove_roles(role)
-            await interaction.response.send_message(f"✅ Removed {role.name} from {user.mention}", ephemeral=True)
-        else:
-            await interaction.response.send_message("❌ Use 'add' or 'remove'", ephemeral=True)
-    except discord.Forbidden:
-        await interaction.response.send_message("❌ I don't have permission to manage that role!", ephemeral=True)
-
-# ==================== VIEWS ====================
-
-async def _create_ticket_channel(bot, interaction, category_id, allowed_role_names, ticket_type, name_prefix):
-    """Shared logic for creating a private ticket channel. Responds and returns None on failure."""
-    guild = interaction.guild
-    category = discord.utils.get(guild.categories, id=category_id)
-
-    if not category:
-        await interaction.response.send_message(
-            "This ticket category isn't configured yet. Please ask an admin to check the bot's category settings.",
-            ephemeral=True
-        )
-        return None
-
-    overwrites = {
-        guild.default_role: discord.PermissionOverwrite(read_messages=False),
-        interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-        guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-    }
-
-    for role_name in allowed_role_names:
-        role_id = bot.role_ids.get(role_name)
-        role = guild.get_role(role_id) if role_id else None
-        if role:
-            overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-
-    try:
-        channel = await guild.create_text_channel(
-            f"{name_prefix}-{interaction.user.name}",
-            category=category,
-            overwrites=overwrites
-        )
-    except discord.Forbidden:
-        await interaction.response.send_message("I don't have permission to create channels here.", ephemeral=True)
-        return None
-    except Exception as e:
-        await interaction.response.send_message(f"Failed to create ticket: {e}", ephemeral=True)
-        return None
-
-    bot.db.create_ticket(channel.id, interaction.user.id, ticket_type)
-    return channel
-
-
-class TicketPanelView(discord.ui.View):
-    """Posted by /setup — the middleman request panel."""
-    def __init__(self, bot):
-        super().__init__(timeout=None)
-        self.bot = bot
-
-    @discord.ui.button(label="Request Middleman", style=discord.ButtonStyle.primary, emoji="🛡️", custom_id="middleman_request")
-    async def request_middleman(self, interaction: discord.Interaction, button: discord.ui.Button):
-        existing = self.bot.db.get_open_ticket(interaction.user.id, 'middleman')
-        if existing:
-            await interaction.response.send_message(f"You already have an open middleman ticket: <#{existing[0]}>", ephemeral=True)
-            return
-        await interaction.response.send_modal(MiddlemanRequestModal(self.bot))
-
-
-class MiddlemanRequestModal(discord.ui.Modal, title="Request a Middleman"):
-    other_person = discord.ui.TextInput(
-        label="Who is the other person?",
-        placeholder="Enter their Discord username and ID",
-        style=discord.TextStyle.short,
-        max_length=100
-    )
-    trade_details = discord.ui.TextInput(
-        label="What is the trade?",
-        placeholder="Describe the items/game/currency being traded",
-        style=discord.TextStyle.paragraph,
-        max_length=500
-    )
-    both_agreed = discord.ui.TextInput(
-        label="Did both agree to this trade?",
-        placeholder="Yes/No with proof if possible",
-        style=discord.TextStyle.short,
-        max_length=100
-    )
-    private_server = discord.ui.TextInput(
-        label="Can you join a private server?",
-        placeholder="Yes/No (link will be provided)",
-        style=discord.TextStyle.short,
-        max_length=100
-    )
-
-    def __init__(self, bot):
-        super().__init__()
-        self.bot = bot
-
-    async def on_submit(self, interaction: discord.Interaction):
-        channel = await _create_ticket_channel(
-            self.bot, interaction,
-            category_id=self.bot.support_category,
-            allowed_role_names=self.bot.middleman_staff_roles,
-            ticket_type='middleman',
-            name_prefix='mm'
-        )
-        if not channel:
-            return
-
-        embed = discord.Embed(
-            title="Middleman Ticket",
-            description=f"Requested by {interaction.user.mention}. A middleman will claim this ticket shortly.",
-            color=discord.Color.green()
-        )
-        embed.add_field(name="Other Trader", value=str(self.other_person), inline=False)
-        embed.add_field(name="Trade Details", value=str(self.trade_details), inline=False)
-        embed.add_field(name="Both Parties Agreed", value=str(self.both_agreed), inline=True)
-        embed.add_field(name="Private Server Available", value=str(self.private_server), inline=True)
-        embed.set_footer(text="Levi's Middleman Services | Ticket opened")
-
-        control_view = TicketControlView(self.bot)
-        await channel.send(content=interaction.user.mention, embed=embed, view=control_view)
-
-        await interaction.response.send_message(f"Ticket created: {channel.mention}", ephemeral=True)
-
-
-class SupportPanelView(discord.ui.View):
-    """Posted by /support — the general support ticket panel."""
-    def __init__(self, bot):
-        super().__init__(timeout=None)
-        self.bot = bot
-
-    @discord.ui.button(label="Open Support Ticket", style=discord.ButtonStyle.secondary, emoji="🛠️", custom_id="support_request")
-    async def open_support_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        existing = self.bot.db.get_open_ticket(interaction.user.id, 'support')
-        if existing:
-            await interaction.response.send_message(f"You already have an open support ticket: <#{existing[0]}>", ephemeral=True)
-            return
-        await interaction.response.send_modal(SupportRequestModal(self.bot))
-
-
-class SupportRequestModal(discord.ui.Modal, title="Open a Support Ticket"):
-    issue_summary = discord.ui.TextInput(
-        label="What do you need help with?",
-        placeholder="e.g. account issue, missing role, bug report",
-        style=discord.TextStyle.short,
-        max_length=100
-    )
-    issue_details = discord.ui.TextInput(
-        label="Describe your issue",
-        placeholder="Give as much detail as possible",
-        style=discord.TextStyle.paragraph,
-        max_length=1000
-    )
-    tried_already = discord.ui.TextInput(
-        label="Have you already contacted staff?",
-        placeholder="Yes/No — who, if applicable",
-        style=discord.TextStyle.short,
-        max_length=100,
-        required=False
-    )
-
-    def __init__(self, bot):
-        super().__init__()
-        self.bot = bot
-
-    async def on_submit(self, interaction: discord.Interaction):
-        channel = await _create_ticket_channel(
-            self.bot, interaction,
-            category_id=self.bot.general_support_category,
-            allowed_role_names=self.bot.support_staff_roles,
-            ticket_type='support',
-            name_prefix='support'
-        )
-        if not channel:
-            return
-
-        embed = discord.Embed(
-            title="Support Ticket",
-            description=f"Opened by {interaction.user.mention}. A staff member will assist you shortly.",
-            color=discord.Color.blue()
-        )
-        embed.add_field(name="Issue", value=str(self.issue_summary), inline=False)
-        embed.add_field(name="Details", value=str(self.issue_details), inline=False)
-        if str(self.tried_already):
-            embed.add_field(name="Already Contacted Staff", value=str(self.tried_already), inline=False)
-        embed.set_footer(text="Levi's Middleman Services | Support ticket opened")
-
-        control_view = TicketControlView(self.bot)
-        await channel.send(content=interaction.user.mention, embed=embed, view=control_view)
-
-        await interaction.response.send_message(f"Ticket created: {channel.mention}", ephemeral=True)
-
-
-class TicketControlView(discord.ui.View):
-    """Posted inside a ticket channel — Claim + Close buttons. Works for both middleman and support tickets."""
-    def __init__(self, bot):
-        super().__init__(timeout=None)
-        self.bot = bot
-
-    @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.primary, emoji="🙋", custom_id="middleman_claim_ticket")
-    async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.bot.is_ticket_channel(interaction.channel):
-            await interaction.response.send_message("This is not an open ticket channel.", ephemeral=True)
-            return
-
-        if not self.bot.has_middleman_permission(interaction.user):
-            await interaction.response.send_message("You need a staff role to claim tickets.", ephemeral=True)
-            return
-
-        ticket = self.bot.db.get_ticket(interaction.channel.id)
-        if ticket and ticket[1]:
-            claimer = interaction.guild.get_member(ticket[1])
-            claimer_mention = claimer.mention if claimer else f"<@{ticket[1]}>"
-            await interaction.response.send_message(f"This ticket is already claimed by {claimer_mention}.", ephemeral=True)
-            return
-
-        self.bot.db.claim_ticket(interaction.channel.id, interaction.user.id)
-
-        button.disabled = True
-        button.label = f"Claimed by {interaction.user.display_name}"
-        await interaction.response.edit_message(view=self)
-
-        await interaction.channel.send(f"{interaction.user.mention} has claimed this ticket and will assist you shortly.")
-
-    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.danger, emoji="🔒", custom_id="middleman_close_ticket")
-    async def close_ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.bot.is_ticket_channel(interaction.channel):
-            await interaction.response.send_message("This is not an open ticket channel.", ephemeral=True)
-            return
-
-        if not self.bot.has_middleman_permission(interaction.user) and interaction.user.id not in self._ticket_owner(interaction.channel.id):
-            await interaction.response.send_message("You don't have permission to close this ticket.", ephemeral=True)
-            return
-
-        self.bot.db.cursor.execute(
-            "UPDATE tickets SET status = 'closed', closed_at = ? WHERE channel_id = ?",
-            (datetime.now(), interaction.channel.id)
-        )
-        self.bot.db.conn.commit()
-
-        await interaction.response.send_message("This ticket will be closed in 5 seconds...")
-        await asyncio.sleep(5)
-        try:
-            await interaction.channel.delete()
-        except discord.Forbidden:
-            pass
-
-    def _ticket_owner(self, channel_id):
-        self.bot.db.cursor.execute(
-            "SELECT user_id FROM tickets WHERE channel_id = ?",
-            (channel_id,)
-        )
-        row = self.bot.db.cursor.fetchone()
-        return [row[0]] if row else []
-
-
-class MercyView(discord.ui.View):
-    def __init__(self, bot, target_user_id):
-        super().__init__(timeout=60)
-        self.bot = bot
-        self.target_user_id = target_user_id
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.target_user_id:
-            await interaction.response.send_message("❌ This offer isn't for you!", ephemeral=True)
-            return False
-        return True
-
-    async def on_timeout(self):
-        for item in self.children:
-            item.disabled = True
-
-    @discord.ui.button(label="✅ Accept", style=discord.ButtonStyle.success, custom_id="mercy_accept")
-    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.bot.db.add_mercy_user(interaction.user.id)
-
-        role = interaction.guild.get_role(self.bot.role_ids['Giveaway Pings'])
-        if role:
-            try:
-                await interaction.user.add_roles(role)
-            except discord.Forbidden:
-                pass
-
-        for item in self.children:
-            item.disabled = True
-
-        embed = discord.Embed(
-            title="✅ Mercy Accepted",
-            description=f"{interaction.user.mention} has accepted the Mercy Program offer and received the Giveaway Pings role.",
-            color=discord.Color.green()
-        )
-        await interaction.response.edit_message(embed=embed, view=self)
-
-        followup_embed = discord.Embed(
-            title="🚀 Ready to get started?",
-            description=(
-                "You're in! Whenever you're ready, we can walk you through your first steps "
-                "in the program.\n\nHit the button below to get going."
-            ),
-            color=discord.Color.purple()
-        )
-        followup_embed.set_footer(text="Levi's Middleman Services | Mercy System")
-        await interaction.followup.send(embed=followup_embed, view=GetStartedView(self.bot), ephemeral=True)
-
-    @discord.ui.button(label="❌ Decline", style=discord.ButtonStyle.danger, custom_id="mercy_decline")
-    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for item in self.children:
-            item.disabled = True
-
-        embed = discord.Embed(
-            title="❌ Mercy Declined",
-            description=f"{interaction.user.mention} has declined the Mercy Program offer.",
-            color=discord.Color.red()
-        )
-        await interaction.response.edit_message(embed=embed, view=self)
-
-
-class GetStartedView(discord.ui.View):
-    def __init__(self, bot):
-        super().__init__(timeout=120)
-        self.bot = bot
-
-    @discord.ui.button(label="🚀 Let's go!", style=discord.ButtonStyle.success, custom_id="mercy_get_started")
-    async def get_started(self, interaction: discord.Interaction, button: discord.ui.Button):
-        button.disabled = True
-        embed = discord.Embed(
-            title="📋 Getting Started",
-            description=(
-                "Here's how to get moving:\n\n"
-                "1️⃣ Head to the ticket panel and open a ticket for your first trade.\n"
-                "2️⃣ A middleman will claim it and walk you through the process.\n"
-                "3️⃣ Rack up hits to climb the middleman ranks — check `/info` for requirements.\n\n"
-                "Good luck out there! 🤝"
-            ),
-            color=discord.Color.purple()
-        )
-        await interaction.response.edit_message(embed=embed, view=self)
-
-
-# ==================== RUN BOT ====================
-
-if __name__ == "__main__":
-    token = os.getenv('DISCORD_TOKEN')
-    if not token:
-        print("❌ DISCORD_TOKEN environment variable not set!")
-    else:
-        bot.run(token)
+    embed.add_field
