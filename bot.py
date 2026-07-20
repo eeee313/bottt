@@ -1,5 +1,5 @@
 """
-BloxTrades / Levi's Middleman Services - Discord Bot
+Levi's MM Services - Discord Bot
 Full ticket system + moderation system + role/rank system.
 
 Run with:  python bot.py
@@ -221,7 +221,7 @@ def build_ticket_embed(opener: discord.Member, answers: dict) -> discord.Embed:
     embed.add_field(name="What is the trade?", value=answers["trade"], inline=False)
     embed.add_field(name="Did both agree to this trade?", value=answers["agreed"], inline=False)
     embed.add_field(name="Can you join a private server?", value=answers["private_server"], inline=False)
-    embed.set_footer(text="Thank you for keeping your trade safe, smooth, and secure! • BloxTrades")
+    embed.set_footer(text="Thank you for keeping your trade safe, smooth, and secure! • Levi's MM Services")
     embed.timestamp = discord.utils.utcnow()
     return embed
 
@@ -282,9 +282,18 @@ class MMTicketModal(discord.ui.Modal, title="MM Ticket Request"):
                     view_channel=True, send_messages=True, read_message_history=True
                 )
 
-        channel = await guild.create_text_channel(
-            channel_name, category=category, overwrites=overwrites
-        )
+        try:
+            channel = await guild.create_text_channel(
+                channel_name, category=category, overwrites=overwrites
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "⚠️ I couldn't create the ticket channel — Discord is requiring two-factor "
+                "authentication on the account that owns this bot application. Enable 2FA on "
+                "that Discord account (or ask an admin to), then try again.",
+                ephemeral=True,
+            )
+            return
 
         answers = {
             "other_person": self.other_person.value,
@@ -358,9 +367,18 @@ class SupportTicketModal(discord.ui.Modal, title="Support Ticket"):
                     view_channel=True, send_messages=True, read_message_history=True
                 )
 
-        channel = await guild.create_text_channel(
-            channel_name, category=category, overwrites=overwrites
-        )
+        try:
+            channel = await guild.create_text_channel(
+                channel_name, category=category, overwrites=overwrites
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "⚠️ I couldn't create the ticket channel — Discord is requiring two-factor "
+                "authentication on the account that owns this bot application. Enable 2FA on "
+                "that Discord account (or ask an admin to), then try again.",
+                ephemeral=True,
+            )
+            return
 
         data_store["tickets"][str(channel.id)] = {
             "opener_id": interaction.user.id,
@@ -376,7 +394,7 @@ class SupportTicketModal(discord.ui.Modal, title="Support Ticket"):
             color=ACCENT_COLOR,
             timestamp=discord.utils.utcnow(),
         )
-        embed.set_footer(text="A staff member will be with you shortly • BloxTrades")
+        embed.set_footer(text="A staff member will be with you shortly • Levi's MM Services")
 
         await channel.send(
             content=f"{interaction.user.mention}", embed=embed, view=TicketControlView()
@@ -519,10 +537,10 @@ async def close_ticket_channel(channel: discord.TextChannel, closer: discord.Mem
 @app_commands.checks.has_permissions(manage_guild=True)
 async def support_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="bloxtrades | MM Service",
+        title="Levi's MM Services | MM Service",
         description=(
             "Welcome to our middleman Service centre.\n\n"
-            "At bloxtrades, we value and provide a safe and secure way to exchange your goods.\n\n"
+            "At Levi's MM Services, we value and provide a safe and secure way to exchange your goods.\n\n"
             "**If you've found a trade and want to ensure your safety, you can use our middleman service.**\n\n"
             "**Usage Conditions:**\n"
             "• Both parties agree to trade before requesting a middleman.\n"
@@ -531,7 +549,7 @@ async def support_cmd(interaction: discord.Interaction):
         ),
         color=EMBED_COLOR,
     )
-    embed.set_footer(text="Powered by bloxtrades")
+    embed.set_footer(text="Powered by Levi's MM Services")
     await interaction.channel.send(embed=embed, view=TicketRequestView())
     await interaction.response.send_message("✅ Support panel posted.", ephemeral=True)
 
@@ -590,13 +608,29 @@ async def transfer_cmd(interaction: discord.Interaction, user: discord.Member):
 BAN_COOLDOWN_SECONDS = 30 * 60  # 30 minutes
 
 
+async def log_command_use(ctx: commands.Context, outcome: str, detail: str = ""):
+    """Logs every +command attempt (success, denial, bad usage) to the mod log."""
+    embed = discord.Embed(
+        title=f"🧾 Command Used: +{ctx.command.name}",
+        color=discord.Color.blue(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="User", value=ctx.author.mention, inline=True)
+    embed.add_field(name="Outcome", value=outcome, inline=True)
+    if detail:
+        embed.add_field(name="Detail", value=detail, inline=False)
+    await log_to_channel(ctx.guild, MOD_LOG_CHANNEL_ID, embed)
+
+
 @bot.command(name="ban")
 async def ban_cmd(ctx: commands.Context, member: discord.Member = None, *, reason: str = None):
     if not can_ban(ctx.author):
         await ctx.send("❌ You don't have permission to use this command.")
+        await log_command_use(ctx, "❌ Denied (no permission)")
         return
     if member is None or reason is None:
         await ctx.send("⚠️ You need to provide a user and reason. Usage: `+ban @user reason`")
+        await log_command_use(ctx, "⚠️ Bad usage (missing user/reason)")
         return
 
     uid = str(ctx.author.id)
@@ -606,12 +640,14 @@ async def ban_cmd(ctx: commands.Context, member: discord.Member = None, *, reaso
         remaining = int(BAN_COOLDOWN_SECONDS - (now - last_used))
         mins, secs = divmod(remaining, 60)
         await ctx.send(f"⏳ You're on cooldown. Try again in {mins}m {secs}s.")
+        await log_command_use(ctx, "⏳ Blocked (cooldown)", f"Target: {member} ({member.id})")
         return
 
     try:
         await member.ban(reason=f"{reason} - by {ctx.author}")
     except discord.Forbidden:
         await ctx.send("❌ I don't have permission to ban that user.")
+        await log_command_use(ctx, "❌ Failed (bot missing permission)", f"Target: {member} ({member.id})")
         return
 
     data_store["ban_cooldowns"][uid] = now
@@ -633,14 +669,17 @@ async def ban_cmd(ctx: commands.Context, member: discord.Member = None, *, reaso
 async def kick_cmd(ctx: commands.Context, member: discord.Member = None, *, reason: str = "No reason provided"):
     if not can_ban(ctx.author):
         await ctx.send("❌ You don't have permission to use this command.")
+        await log_command_use(ctx, "❌ Denied (no permission)")
         return
     if member is None:
         await ctx.send("⚠️ You need to provide a user. Usage: `+kick @user reason`")
+        await log_command_use(ctx, "⚠️ Bad usage (missing user)")
         return
     try:
         await member.kick(reason=f"{reason} - by {ctx.author}")
     except discord.Forbidden:
         await ctx.send("❌ I don't have permission to kick that user.")
+        await log_command_use(ctx, "❌ Failed (bot missing permission)", f"Target: {member} ({member.id})")
         return
 
     embed = discord.Embed(
@@ -659,9 +698,11 @@ async def kick_cmd(ctx: commands.Context, member: discord.Member = None, *, reas
 async def warn_cmd(ctx: commands.Context, member: discord.Member = None, *, reason: str = None):
     if not can_warn(ctx.author):
         await ctx.send("❌ You don't have permission to use this command.")
+        await log_command_use(ctx, "❌ Denied (no permission)")
         return
     if member is None or reason is None:
         await ctx.send("⚠️ You need to provide a user and reason. Usage: `+warn @user reason`")
+        await log_command_use(ctx, "⚠️ Bad usage (missing user/reason)")
         return
 
     uid = str(member.id)
@@ -699,14 +740,17 @@ async def warn_cmd(ctx: commands.Context, member: discord.Member = None, *, reas
 async def warnings_cmd(ctx: commands.Context, member: discord.Member = None):
     if not can_warn(ctx.author):
         await ctx.send("❌ You don't have permission to use this command.")
+        await log_command_use(ctx, "❌ Denied (no permission)")
         return
     if member is None:
         await ctx.send("⚠️ You need to provide a user. Usage: `+warnings @user`")
+        await log_command_use(ctx, "⚠️ Bad usage (missing user)")
         return
 
     warns = data_store["warnings"].get(str(member.id), [])
     if not warns:
         await ctx.send(f"✅ {member.mention} has no warnings.")
+        await log_command_use(ctx, "✅ Checked (no warnings)", f"Target: {member} ({member.id})")
         return
 
     embed = discord.Embed(title=f"Warnings for {member}", color=discord.Color.gold())
@@ -719,36 +763,69 @@ async def warnings_cmd(ctx: commands.Context, member: discord.Member = None):
         )
     await ctx.send(embed=embed)
 
+    log_embed = discord.Embed(
+        title="🔍 Warnings Checked",
+        color=discord.Color.blue(),
+        timestamp=discord.utils.utcnow(),
+    )
+    log_embed.add_field(name="Target", value=f"{member} ({member.id})", inline=False)
+    log_embed.add_field(name="Checked by", value=ctx.author.mention, inline=False)
+    await log_to_channel(ctx.guild, MOD_LOG_CHANNEL_ID, log_embed)
+
 
 @bot.command(name="clearwarn")
 async def clearwarn_cmd(ctx: commands.Context, member: discord.Member = None):
     if not can_warn(ctx.author):
         await ctx.send("❌ You don't have permission to use this command.")
+        await log_command_use(ctx, "❌ Denied (no permission)")
         return
     if member is None:
         await ctx.send("⚠️ You need to provide a user. Usage: `+clearwarn @user`")
+        await log_command_use(ctx, "⚠️ Bad usage (missing user)")
         return
     data_store["warnings"][str(member.id)] = []
     save_data(data_store)
     await ctx.send(f"✅ Cleared all warnings for {member.mention}.")
+
+    embed = discord.Embed(
+        title="🧹 Warnings Cleared",
+        color=discord.Color.blue(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="Target", value=f"{member} ({member.id})", inline=False)
+    embed.add_field(name="Moderator", value=ctx.author.mention, inline=False)
+    await log_to_channel(ctx.guild, MOD_LOG_CHANNEL_ID, embed)
 
 
 @bot.command(name="delwarn")
 async def delwarn_cmd(ctx: commands.Context, member: discord.Member = None, warn_id: int = None):
     if not can_warn(ctx.author):
         await ctx.send("❌ You don't have permission to use this command.")
+        await log_command_use(ctx, "❌ Denied (no permission)")
         return
     if member is None or warn_id is None:
         await ctx.send("⚠️ Usage: `+delwarn @user <warning_id>`")
+        await log_command_use(ctx, "⚠️ Bad usage (missing user/id)")
         return
     warns = data_store["warnings"].get(str(member.id), [])
     new_warns = [w for w in warns if w["id"] != warn_id]
     if len(new_warns) == len(warns):
         await ctx.send(f"⚠️ No warning with ID {warn_id} found for {member.mention}.")
+        await log_command_use(ctx, "⚠️ Failed (warning ID not found)", f"Target: {member} ({member.id}), ID: {warn_id}")
         return
     data_store["warnings"][str(member.id)] = new_warns
     save_data(data_store)
     await ctx.send(f"✅ Deleted warning #{warn_id} for {member.mention}.")
+
+    embed = discord.Embed(
+        title="🗑️ Warning Deleted",
+        color=discord.Color.blue(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="Target", value=f"{member} ({member.id})", inline=False)
+    embed.add_field(name="Warning ID", value=str(warn_id), inline=False)
+    embed.add_field(name="Moderator", value=ctx.author.mention, inline=False)
+    await log_to_channel(ctx.guild, MOD_LOG_CHANNEL_ID, embed)
 
 
 # =========================================================
@@ -922,6 +999,16 @@ class OfferView(discord.ui.View):
 @bot.tree.command(name="offer", description="Send a trade offer to a user.")
 @app_commands.describe(user="The user to offer a trade to")
 async def offer_cmd(interaction: discord.Interaction, user: discord.Member):
+    if user.bot:
+        await interaction.response.send_message(
+            "⚠️ You can't send a trade offer to a bot.", ephemeral=True
+        )
+        return
+    if user.id == interaction.user.id:
+        await interaction.response.send_message(
+            "⚠️ You can't send a trade offer to yourself.", ephemeral=True
+        )
+        return
     embed = discord.Embed(
         title="You have been offered a trade!",
         description="How will you accept? I will tend for you to accept this trade, to make more, etc.",
@@ -1016,19 +1103,19 @@ async def explain_cmd(interaction: discord.Interaction):
 #  INFO / FAQ / TOS / SCAM AWARENESS
 # =========================================================
 
-@bot.tree.command(name="about", description="Learn about BloxTrades.")
+@bot.tree.command(name="about", description="Learn about Levi's MM Services.")
 async def about_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="ℹ️ About BloxTrades",
+        title="ℹ️ About Levi's MM Services",
         description=(
-            "BloxTrades is a trusted trading community offering a professional, "
+            "Levi's MM Services is a trusted trading community offering a professional, "
             "secure middleman service to protect both parties of a trade.\n\n"
             "Our staff team is trained, ranked, and held to strict standards to "
             "ensure every trade is handled safely and fairly."
         ),
         color=EMBED_COLOR,
     )
-    embed.set_footer(text="Powered by bloxtrades")
+    embed.set_footer(text="Powered by Levi's MM Services")
     await interaction.response.send_message(embed=embed)
 
 
@@ -1112,6 +1199,22 @@ async def on_ready():
     except Exception as e:
         print(f"Slash sync failed: {e}")
     print(f"Logged in as {bot.user} ({bot.user.id})")
+
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.MissingPermissions):
+        msg = "❌ You don't have permission to use this command."
+    else:
+        msg = "⚠️ Something went wrong running that command. Please try again."
+        print(f"Slash command error: {error}")
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except discord.HTTPException:
+        pass
 
 
 @bot.event
