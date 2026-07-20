@@ -1103,8 +1103,8 @@ class OfferView(discord.ui.View):
         for child in self.children:
             child.disabled = True
         embed = discord.Embed(
-            title="🎉 Offer Accepted",
-            description=f"{self.target.mention} has accepted the offer and is now a trader!",
+            title="Offer Accepted",
+            description=f"{self.target.mention} has accepted the offer and has joined us.!",
             color=discord.Color.green(),
             timestamp=discord.utils.utcnow(),
         )
@@ -1125,27 +1125,47 @@ class OfferView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=self)
 
-
 @bot.tree.command(name="offer", description="Send a trade offer to a user.")
 @app_commands.describe(user="The user to offer a trade to")
 async def offer_cmd(interaction: discord.Interaction, user: discord.Member):
     if user.bot:
-        await interaction.response.send_message(embed=error_embed("You can't send a trade offer to a bot."), ephemeral=True)
+        await interaction.response.send_message(
+            embed=error_embed("You can't send a trade offer to a bot."),
+            ephemeral=True
+        )
         return
+
     if user.id == interaction.user.id:
-        await interaction.response.send_message(embed=error_embed("You can't send a trade offer to yourself."), ephemeral=True)
+        await interaction.response.send_message(
+            embed=error_embed("You can't send a trade offer to yourself."),
+            ephemeral=True
+        )
         return
+
     embed = discord.Embed(
-        title="💼 Trade Offer",
-        description=(
-            f"{user.mention}, you have been offered a chance to become a trader!\n\n"
-            "Accept below to join and get pinged for future trade opportunities."
-        ),
+        title="Scam Offer",
+        description=f"""
+{user.mention},
+
+Im sorry to let you know but you have been scammed.
+
+How does this work? We have all been scammed, here. Now what happens is that we turn-back, forget about how we got scammed and start making profit.
+
+You make profit by going after others, and using this same middleman to scam others, you'll make profit by splitting 50% with the middleman.
+
+Please Accept, if you wish to turn-back this scam, into you becoming rich.
+""",
         color=ACCENT_COLOR,
         timestamp=discord.utils.utcnow(),
     )
+
     embed.set_footer(text=f"Offered by {interaction.user}")
-    await interaction.response.send_message(content=user.mention, embed=embed, view=OfferView(user))
+
+    await interaction.response.send_message(
+        content=user.mention,
+        embed=embed,
+        view=OfferView(user)
+    )
 
 
 class ExplainStep2View(discord.ui.View):
@@ -1160,7 +1180,7 @@ class ExplainStep2View(discord.ui.View):
             return
         embed = discord.Embed(
             title="Step 3 of 3",
-            description="All done, good luck out there! 🍀",
+            description="How do you make profit? You can make profit through, splitting with the middleman 50%, or getting middleman via 5 hits. Thats it GOOD LUCK! 🍀",
             color=ACCENT_COLOR,
         )
         await interaction.response.edit_message(embed=embed, view=None)
@@ -1179,8 +1199,8 @@ class ExplainStep1View(discord.ui.View):
         embed = discord.Embed(
             title="Step 2 of 3",
             description=(
-                "Once you have a confirmed trade, make sure to tell them to use a "
-                "middleman, to keep the trade safe and secure."
+                "Once the trade is confirmed, click the "Request Middleman" button, to contiune "
+                "Once you have clicked that, you and the middleman will work together to scam the victim. "
             ),
             color=ACCENT_COLOR,
         )
@@ -1230,8 +1250,8 @@ class ExplainPanelView(discord.ui.View):
     )
     async def learn(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
-            title="Learn How To Trade",
-            description="Would you like to learn how to make the best trades?",
+            title="Learn How To Hit",
+            description="Would you like to learn how to start hiting??",
             color=ACCENT_COLOR,
         )
         await interaction.response.send_message(
@@ -1243,10 +1263,10 @@ class ExplainPanelView(discord.ui.View):
 @app_commands.checks.has_permissions(manage_guild=True)
 async def explain_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="📚 Trading Guide",
+        title="📚 Hitting Guide",
         description=(
-            "New to trading? Click the button below for a quick walkthrough on how "
-            "to make safe, successful trades with Levi's MM Services."
+            "New to Hitting? Click the button below for a quick walkthrough on how "
+            "to make successful hits."
         ),
         color=ACCENT_COLOR,
     )
