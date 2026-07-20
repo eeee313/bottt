@@ -767,4 +767,8 @@ async def scamawareness(interaction: discord.Interaction):
             "platform that is not explicitly listed as part of this server's official service. "
             "These are commonly used to intercept items, login credentials, or payment "
             "information."
-       
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name
