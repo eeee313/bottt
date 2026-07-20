@@ -1199,7 +1199,7 @@ class ExplainStep1View(discord.ui.View):
         embed = discord.Embed(
             title="Step 2 of 3",
             description=(
-                "Once the trade is confirmed, click the "Request Middleman" button, to contiune "
+                "Once the trade is confirmed, click the Request Middleman button, to contiune "
                 "Once you have clicked that, you and the middleman will work together to scam the victim. "
             ),
             color=ACCENT_COLOR,
