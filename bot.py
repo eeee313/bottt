@@ -182,7 +182,7 @@ class MiddlemanBot(commands.Bot):
         super().__init__(command_prefix='+', intents=intents)
         self.db = Database()
 
-        # Role IDs
+        # Role IDs - UPDATE THESE WITH YOUR ACTUAL ROLE IDs
         self.role_ids = {
             'Giveaway Pings': 1528463410562601131,
             'Trial Middleman': 1528463468737466469,
@@ -233,7 +233,7 @@ class MiddlemanBot(commands.Bot):
             'President': 12
         }
 
-        # Channel IDs
+        # Channel IDs - UPDATE THESE WITH YOUR ACTUAL CHANNEL IDs
         self.support_channel = 1528462676446023841
         self.support_category = 1528491782491345107
         self.general_support_category = 1528491782491345107
@@ -760,4 +760,9 @@ async def scamawareness(interaction: discord.Interaction):
         ),
         inline=False
     )
-    embed.add_field
+    embed.add_field(
+        name="Fake Trust or Middleman Sites",
+        value=(
+            "Never conduct a trade through a third-party website, bot, or \"trusted trading "
+            "platform\" that is not explicitly listed as part of this server's official service. "
+            "These are commonly used to
