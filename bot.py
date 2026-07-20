@@ -146,7 +146,7 @@ class MiddlemanBot(commands.Bot):
         self.support_channel = 1528462676446023841
         self.support_category = 1528491782491345107
         self.general_support_category = 1528491782491345107
-        self.middleman_category = 1527856283498184876
+        self.middleman_category = 1527856283498184876  # Tickets go here
         self.welcome_channel = 1527829658979012608
         self.setup_role = 1526271680371232788
         self.middleman_staff_roles = ['Trial Middleman', 'Middleman', 'Lead Middleman', 'Moderator', 'Coordinator', 'Overseer', 'Head of Management', 'Head of Coordination', 'Head of Operations', 'Head of Staff', 'President']
@@ -236,11 +236,11 @@ async def on_member_join(member):
             pass
     welcome_channel = bot.get_channel(bot.welcome_channel)
     if welcome_channel:
-        embed = discord.Embed(title="Buy Robux™ | New Member Joined", color=discord.Color.blue())
+        embed = discord.Embed(title="Levi MM Services | New Member Joined", color=discord.Color.blue())
         embed.add_field(name="User", value=member.mention, inline=True)
         embed.add_field(name="User ID", value=member.id, inline=True)
         embed.add_field(name="Account Created", value=member.created_at.strftime("%A, %B %d, %Y %I:%M %p"), inline=False)
-        embed.set_footer(text="Buy Robux™ | Invite Tracker")
+        embed.set_footer(text="Levi MM Services | Invite Tracker")
         try:
             await welcome_channel.send(embed=embed)
         except discord.HTTPException:
@@ -255,94 +255,266 @@ async def ping(interaction: discord.Interaction):
 @bot.tree.command(name="setup", description="Post the middleman ticket panel")
 async def setup(interaction: discord.Interaction):
     if not bot.has_setup_role(interaction.user):
-        await interaction.response.send_message("You need the Setup role to use this.", ephemeral=True)
+        await interaction.response.send_message("❌ You need the Setup role to use this.", ephemeral=True)
         return
     view = TicketPanelView(bot)
-    embed = discord.Embed(title="Levi's Middleman Services | MM Service", color=discord.Color.from_rgb(47, 49, 54))
-    embed.description = "Welcome to our middleman service centre.\n\nAt Levi's Middleman Services, we value and provide a safe and secure way to exchange your goods.\n\nIf you've found a trade and want to ensure your safety, you can use our middleman service."
-    embed.set_footer(text="Levi's Middleman Services")
+    embed = discord.Embed(
+        title="🛡️ Levi's Middleman Services",
+        description="**Welcome to our official Middleman Service Centre**\n\n"
+                    "We provide a safe and secure way to exchange your goods with complete peace of mind.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**📋 How It Works:**\n"
+                    "• Click the button below to request a middleman\n"
+                    "• A staff member will be assigned to your trade\n"
+                    "• Both parties confirm the trade details\n"
+                    "• Trade is completed safely and securely\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**⚠️ Important:**\n"
+                    "• Both parties must agree before requesting\n"
+                    "• Fake or troll tickets will result in punishment\n"
+                    "• Keep all communication in the ticket\n\n"
+                    "*Powered by Levi's Middleman Services*",
+        color=discord.Color.blue()
+    )
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1338592957753725044/1338592957753725044/levi_logo.png")
+    embed.set_footer(text="Levi's Middleman Services © 2024")
     await interaction.response.send_message(embed=embed, view=view)
 
 @bot.tree.command(name="support", description="Post the general support ticket panel")
 async def support(interaction: discord.Interaction):
     if not bot.has_setup_role(interaction.user):
-        await interaction.response.send_message("You need the Setup role to use this.", ephemeral=True)
+        await interaction.response.send_message("❌ You need the Setup role to use this.", ephemeral=True)
         return
     view = SupportPanelView(bot)
-    embed = discord.Embed(title="Levi's Middleman Services | Support Centre", color=discord.Color.from_rgb(47, 49, 54))
-    embed.description = "Welcome to our support centre.\n\nThis panel is for account, server, or general issues that are **not** related to an active trade."
-    embed.set_footer(text="Levi's Middleman Services")
+    embed = discord.Embed(
+        title="🛠️ Levi's Support Centre",
+        description="**Welcome to our Official Support Centre**\n\n"
+                    "Need help with an account, server, or general issue?\n"
+                    "We're here to assist you.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**📋 Before Opening a Ticket:**\n"
+                    "• Check `/faq` — your question may already be answered\n"
+                    "• Have relevant details ready (screenshots, order info)\n"
+                    "• Only one open support ticket per person\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**🛠️ What We Can Help With:**\n"
+                    "• Account issues\n"
+                    "• Server problems\n"
+                    "• General questions\n"
+                    "• Bug reports\n\n"
+                    "*Powered by Levi's Middleman Services*",
+        color=discord.Color.gold()
+    )
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1338592957753725044/1338592957753725044/levi_logo.png")
+    embed.set_footer(text="Levi's Middleman Services © 2024")
     await interaction.response.send_message(embed=embed, view=view)
 
-@bot.tree.command(name="mercy", description="Start the mercy program")
-async def mercy(interaction: discord.Interaction):
-    embed = discord.Embed(title="🤝 Mercy Offer", description=f"@{interaction.user.name}\n\nWe regret to inform you that you have been scammed.\nWe sincerely apologize for this unfortunate situation.\n\nHowever, there is a way to recover your losses and potentially earn more.", color=discord.Color.purple())
+@bot.tree.command(name="offer", description="Offer the mercy program to a user")
+@app_commands.describe(user="The user to offer mercy to")
+async def offer_mercy(interaction: discord.Interaction, user: discord.Member):
+    # Only Trial Middleman and above can use this
+    if not bot.has_middleman_permission(interaction.user):
+        await interaction.response.send_message("❌ You don't have permission to use this command!", ephemeral=True)
+        return
+    
+    embed = discord.Embed(
+        title="🤝 Mercy Program Invitation",
+        description=f"You have been invited to join the **Mercy Program**!\n\n"
+                    f"**What is the Mercy Program?**\n"
+                    f"The Mercy Program allows selected users to join our private system and start earning through our internal methods.\n\n"
+                    f"**What do I get?**\n"
+                    f"• Access to our private system\n"
+                    f"• Opportunity to earn\n"
+                    f"• Giveaway Pings role\n\n"
+                    f"**Choose below if you want to join.**",
+        color=discord.Color.purple()
+    )
     embed.set_footer(text="Levi's Middleman Services | Mercy System")
-    view = MercyView(bot, interaction.user.id)
-    await interaction.response.send_message(content=interaction.user.mention, embed=embed, view=view)
+    
+    view = MercyView(bot, user.id)
+    await interaction.response.send_message(content=user.mention, embed=embed, view=view)
 
 @bot.tree.command(name="about", description="About Levi's MM Services")
 async def about(interaction: discord.Interaction):
-    embed = discord.Embed(title="About Levi's Middleman Services", color=discord.Color.dark_blue())
-    embed.description = "Levi's Middleman Services was established to give traders a reliable, neutral third party for exchanges where trust cannot otherwise be verified."
-    embed.add_field(name="Founded", value="2024", inline=True)
-    embed.add_field(name="Service Model", value="Free, staff-run trade escrow", inline=True)
-    embed.add_field(name="Team Structure", value="12 ranked staff tiers", inline=True)
-    embed.set_footer(text="Levi's Middleman Services")
+    embed = discord.Embed(
+        title="📖 About Levi's Middleman Services",
+        description="**Your Trusted Trading Partner**\n\n"
+                    "Levi's Middleman Services was established to give traders a reliable, "
+                    "neutral third party for exchanges where trust cannot otherwise be verified.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Our Mission**\n"
+                    "We provide a safe and secure environment for traders to exchange "
+                    "goods without the risk of being scammed.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Why Choose Us?**\n"
+                    "• Professional and experienced staff\n"
+                    "• Fast and reliable service\n"
+                    "• Secure and safe trades\n"
+                    "• 24/7 support availability\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Founded:** 2024\n"
+                    "**Service Model:** Free, staff-run trade escrow\n"
+                    "**Team Structure:** 12 ranked staff tiers",
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text="Levi's Middleman Services © 2024")
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="faq", description="Frequently Asked Questions")
 async def faq(interaction: discord.Interaction):
-    embed = discord.Embed(title="Frequently Asked Questions", description="Answers to the questions we're asked most often.", color=discord.Color.dark_teal())
-    embed.add_field(name="How do I request a middleman?", value="Open the middleman panel and click Request Middleman.", inline=False)
-    embed.add_field(name="Is the middleman service free?", value="Yes. There is no fee to use a middleman for a standard trade.", inline=False)
-    embed.add_field(name="How do I become a middleman?", value="Through the Mercy Program with `/mercy` or by meeting rank requirements.", inline=False)
-    embed.set_footer(text="Levi's Middleman Services")
+    embed = discord.Embed(
+        title="❓ Frequently Asked Questions",
+        description="**Answers to the questions we're asked most often.**\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**How do I request a middleman?**\n"
+                    "Open the middleman panel and click 'Request Middleman'.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Is the middleman service free?**\n"
+                    "Yes! There is no fee to use a middleman for a standard trade.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**How do I become a staff member?**\n"
+                    "New staff members are brought in through the Mercy Program.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**What are the requirements for each rank?**\n"
+                    "Requirements vary by rank. Use `/info` for the full breakdown.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**How long does a trade take?**\n"
+                    "Most tickets are claimed within a few minutes during active hours.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Can I open a ticket for something other than a trade?**\n"
+                    "Yes! Use the support panel for account or server issues.",
+        color=discord.Color.teal()
+    )
+    embed.set_footer(text="Levi's Middleman Services © 2024")
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="tos", description="Terms of Service")
 async def tos(interaction: discord.Interaction):
-    embed = discord.Embed(title="📜 Terms of Service", description="Levi's Middleman Services", color=discord.Color.red())
-    embed.add_field(name="1. Acceptance", value="By using our service, you accept these terms", inline=False)
-    embed.add_field(name="2. Liability", value="We are not responsible for scams outside our platform", inline=False)
-    embed.add_field(name="3. Fees", value="Fees are non-refundable once service is provided", inline=False)
-    embed.add_field(name="4. Disputes", value="All disputes will be handled by management", inline=False)
+    embed = discord.Embed(
+        title="📜 Terms of Service",
+        description="**Levi's Middleman Services - Terms of Service**\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**1. Acceptance of Terms**\n"
+                    "By using our service, you agree to these terms and conditions.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**2. Service Liability**\n"
+                    "We are not responsible for scams that occur outside our platform.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**3. Fees and Payments**\n"
+                    "All fees are non-refundable once the service has been provided.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**4. Dispute Resolution**\n"
+                    "All disputes will be handled fairly by management.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**5. User Conduct**\n"
+                    "Users must behave respectfully and follow staff instructions.",
+        color=discord.Color.red()
+    )
+    embed.set_footer(text="Levi's Middleman Services © 2024")
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="scamawareness", description="Learn how to avoid scams")
 async def scamawareness(interaction: discord.Interaction):
-    embed = discord.Embed(title="Scam Awareness", color=discord.Color.dark_red())
-    embed.description = "Scammers rely on urgency, unfamiliarity, and trust to succeed."
-    embed.add_field(name="Impersonation", value="Always verify a staff member's identity through their exact username and ID.", inline=False)
-    embed.add_field(name="Fake Trust or Middleman Sites", value="Never conduct a trade through a third-party website or bot.", inline=False)
-    embed.add_field(name="Requests for Sensitive Information", value="No legitimate staff will ever ask for your password or 2FA codes.", inline=False)
-    embed.set_footer(text="Levi's Middleman Services")
+    embed = discord.Embed(
+        title="🚨 Scam Awareness Guide",
+        description="**Protect Yourself from Scammers**\n\n"
+                    "Scammers rely on urgency, unfamiliarity, and trust to succeed. "
+                    "Read this guide to stay safe.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**⚠️ Impersonation**\n"
+                    "Scammers create accounts with names and avatars nearly identical to real staff. "
+                    "Always verify a staff member's identity through their exact username and ID.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**⚠️ Fake Trust or Middleman Sites**\n"
+                    "Never conduct a trade through a third-party website or bot that is not "
+                    "officially listed by our service.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**⚠️ Pressure and Urgency**\n"
+                    "Scammers rush trades by claiming limited-time offers or that someone "
+                    "else is buying it right now. Legitimate trades don't skip verification.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**⚠️ Requests for Sensitive Information**\n"
+                    "No legitimate staff will ever ask for your password, 2FA codes, "
+                    "payment card details, or remote access to your device.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**✅ Before You Trade**\n"
+                    "• Confirm terms in writing\n"
+                    "• Keep screenshots of all agreements\n"
+                    "• Use the official ticket system\n\n"
+                    "**If You Believe You Are Being Scammed:**\n"
+                    "Stop the trade immediately and open a ticket to report the situation.",
+        color=discord.Color.dark_red()
+    )
+    embed.set_footer(text="Levi's Middleman Services © 2024")
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="howmmworks", description="How the middleman system works")
 async def howmmworks(interaction: discord.Interaction):
-    embed = discord.Embed(title="🔄 How Middleman Works", description="Levi's Middleman Services", color=discord.Color.green())
-    embed.add_field(name="Step 1: Find a Trade", value="Find a trade you want to complete", inline=False)
-    embed.add_field(name="Step 2: Request Middleman", value="Request a middleman to facilitate the trade", inline=False)
-    embed.add_field(name="Step 3: Confirm", value="Both parties confirm the trade", inline=False)
-    embed.add_field(name="Step 4: Completion", value="Trade is completed and verified", inline=False)
+    embed = discord.Embed(
+        title="🔄 How Middleman Works",
+        description="**Step-by-Step Guide**\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Step 1: Find a Trade**\n"
+                    "Find a trade you want to complete and confirm with the other party.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Step 2: Request a Middleman**\n"
+                    "Click 'Request Middleman' and provide the trade details.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Step 3: Wait for a Staff Member**\n"
+                    "A staff member will claim your ticket and assist you.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Step 4: Confirm the Trade**\n"
+                    "Both parties confirm the trade details with the middleman.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Step 5: Trade Completion**\n"
+                    "The trade is completed and verified by the middleman.",
+        color=discord.Color.green()
+    )
+    embed.set_footer(text="Levi's Middleman Services © 2024")
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="fee", description="View the middleman fee structure")
 async def fee(interaction: discord.Interaction):
-    embed = discord.Embed(title="💰 Middleman Fee Structure", description="Levi's Middleman Services", color=discord.Color.gold())
-    embed.add_field(name="Standard Fee", value="5% of trade value", inline=True)
-    embed.add_field(name="Minimum Fee", value="$5 USD", inline=True)
-    embed.add_field(name="Maximum Fee", value="$50 USD", inline=True)
+    embed = discord.Embed(
+        title="💰 Middleman Fee Structure",
+        description="**Transparent Pricing**\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Standard Fee**\n"
+                    "5% of trade value\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Minimum Fee**\n"
+                    "$5 USD\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**Maximum Fee**\n"
+                    "$50 USD\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**💡 Tip**\n"
+                    "Fees are split 50/50 between the middleman and the program.",
+        color=discord.Color.gold()
+    )
+    embed.set_footer(text="Levi's Middleman Services © 2024")
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="policy", description="View the middleman policy")
 async def policy(interaction: discord.Interaction):
-    embed = discord.Embed(title="📋 Middleman Policy", description="Levi's Middleman Services", color=discord.Color.blue())
-    embed.add_field(name="1. Safety First", value="Always ensure both parties are legitimate", inline=False)
-    embed.add_field(name="2. Confirmation", value="Both parties must confirm the trade", inline=False)
-    embed.add_field(name="3. Screenshots", value="Take screenshots of all trades", inline=False)
-    embed.add_field(name="4. Disputes", value="Report disputes to management", inline=False)
+    embed = discord.Embed(
+        title="📋 Middleman Policy",
+        description="**Our Core Policies**\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**1. Safety First**\n"
+                    "Always ensure both parties are legitimate before proceeding.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**2. Confirmation**\n"
+                    "Both parties must confirm the trade before completion.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**3. Screenshots**\n"
+                    "Take screenshots of all trades for verification.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**4. Disputes**\n"
+                    "Report any disputes to management immediately.",
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text="Levi's Middleman Services © 2024")
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="confirm", description="Confirm a trade between two users")
@@ -353,7 +525,11 @@ async def confirm(interaction: discord.Interaction, user1: discord.Member, user2
         return
     hit1 = bot.db.add_hit(user1.id)
     hit2 = bot.db.add_hit(user2.id)
-    embed = discord.Embed(title="✅ Trade Confirmed", description=f"Trade between {user1.mention} and {user2.mention} confirmed!", color=discord.Color.green())
+    embed = discord.Embed(
+        title="✅ Trade Confirmed",
+        description=f"Trade between {user1.mention} and {user2.mention} has been confirmed!",
+        color=discord.Color.green()
+    )
     embed.add_field(name="Middleman", value=interaction.user.mention, inline=True)
     embed.add_field(name="📊 Stats", value=f"{user1.mention}: {hit1} hits\n{user2.mention}: {hit2} hits", inline=False)
     await interaction.response.send_message(embed=embed)
@@ -456,218 +632,4 @@ async def info_command(ctx):
 @bot.command(name='perks')
 async def perks_command(ctx):
     gp_ping = bot.get_role_mention('Giveaway Pings')
-    tm_ping = bot.get_role_mention('Trial Middleman')
-    m_ping = bot.get_role_mention('Middleman')
-    lm_ping = bot.get_role_mention('Lead Middleman')
-    mod_ping = bot.get_role_mention('Moderator')
-    coord_ping = bot.get_role_mention('Coordinator')
-    ovr_ping = bot.get_role_mention('Overseer')
-    hom_ping = bot.get_role_mention('Head of Management')
-    hoc_ping = bot.get_role_mention('Head of Coordination')
-    hoop_ping = bot.get_role_mention('Head of Operations')
-    hodev_ping = bot.get_role_mention('Head of Dev')
-    hos_ping = bot.get_role_mention('Head of Staff')
-    pres_ping = bot.get_role_mention('President')
-    perks_text = f"""⭐ ROLE PERKS - Levi's Middleman Services
-
-**{gp_ping}** — Get this role after accepting the Mercy Program, hitters only.
-
-**{tm_ping}** — Claim tickets, handle tickets, use middleman commands.
-
-**{m_ping}** — Claim tickets, handle tickets, warn members.
-
-**{lm_ping}** — Claim tickets, handle tickets, warn members.
-
-**{mod_ping}** — Claim tickets, handle tickets, warn members, mute members.
-
-**{coord_ping}** — Claim tickets, handle tickets, warn members, mute members.
-
-**{ovr_ping}** — Claim tickets, handle tickets, warn members, ban members.
-
-**{hom_ping}** — Manage staff, handle tickets.
-
-**{hoc_ping}** — Manage staff, handle tickets.
-
-**{hoop_ping}** — Manage staff, handle tickets.
-
-**{hodev_ping}** — Develop bots and systems.
-
-**{hos_ping}** — Manage all staff.
-
-**{pres_ping}** — Admin perms, can do all perms below."""
-    chunks = [perks_text[i:i+1900] for i in range(0, len(perks_text), 1900)]
-    for chunk in chunks:
-        await ctx.send(chunk)
-
-# ==================== VIEWS ====================
-
-class TicketPanelView(discord.ui.View):
-    def __init__(self, bot):
-        super().__init__(timeout=None)
-        self.bot = bot
-
-    @discord.ui.button(label="Request Middleman", style=discord.ButtonStyle.primary, emoji="🛡️", custom_id="middleman_request")
-    async def request_middleman(self, interaction: discord.Interaction, button: discord.ui.Button):
-        existing = self.bot.db.get_open_ticket(interaction.user.id, 'middleman')
-        if existing:
-            await interaction.response.send_message(f"You already have an open ticket: <#{existing[0]}>", ephemeral=True)
-            return
-        await interaction.response.send_modal(MiddlemanRequestModal(self.bot))
-
-class MiddlemanRequestModal(discord.ui.Modal, title="Request a Middleman"):
-    other_person = discord.ui.TextInput(label="Who is the other person?", placeholder="Enter their Discord username", style=discord.TextStyle.short, max_length=100)
-    trade_details = discord.ui.TextInput(label="What is the trade?", placeholder="Describe the trade", style=discord.TextStyle.paragraph, max_length=500)
-    both_agreed = discord.ui.TextInput(label="Did both agree?", placeholder="Yes/No", style=discord.TextStyle.short, max_length=100)
-
-    def __init__(self, bot):
-        super().__init__()
-        self.bot = bot
-
-    async def on_submit(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        category = discord.utils.get(guild.categories, id=self.bot.support_category)
-        if not category:
-            await interaction.response.send_message("Category not configured.", ephemeral=True)
-            return
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
-        for role_name in self.bot.middleman_staff_roles:
-            role_id = self.bot.role_ids.get(role_name)
-            role = guild.get_role(role_id) if role_id else None
-            if role:
-                overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        try:
-            channel = await guild.create_text_channel(f"mm-{interaction.user.name}", category=category, overwrites=overwrites)
-        except discord.HTTPException:
-            await interaction.response.send_message("Failed to create ticket.", ephemeral=True)
-            return
-        self.bot.db.create_ticket(channel.id, interaction.user.id, 'middleman')
-        embed = discord.Embed(title="Middleman Ticket", description=f"Requested by {interaction.user.mention}", color=discord.Color.green())
-        embed.add_field(name="Other Trader", value=str(self.other_person), inline=False)
-        embed.add_field(name="Trade Details", value=str(self.trade_details), inline=False)
-        embed.add_field(name="Both Agreed", value=str(self.both_agreed), inline=True)
-        view = TicketControlView(self.bot)
-        await channel.send(content=interaction.user.mention, embed=embed, view=view)
-        await interaction.response.send_message(f"Ticket created: {channel.mention}", ephemeral=True)
-
-class SupportPanelView(discord.ui.View):
-    def __init__(self, bot):
-        super().__init__(timeout=None)
-        self.bot = bot
-
-    @discord.ui.button(label="Open Support Ticket", style=discord.ButtonStyle.secondary, emoji="🛠️", custom_id="support_request")
-    async def open_support_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        existing = self.bot.db.get_open_ticket(interaction.user.id, 'support')
-        if existing:
-            await interaction.response.send_message(f"You already have an open ticket: <#{existing[0]}>", ephemeral=True)
-            return
-        await interaction.response.send_modal(SupportRequestModal(self.bot))
-
-class SupportRequestModal(discord.ui.Modal, title="Open a Support Ticket"):
-    issue_summary = discord.ui.TextInput(label="What do you need help with?", placeholder="Brief summary", style=discord.TextStyle.short, max_length=100)
-    issue_details = discord.ui.TextInput(label="Describe your issue", placeholder="Details", style=discord.TextStyle.paragraph, max_length=1000)
-
-    def __init__(self, bot):
-        super().__init__()
-        self.bot = bot
-
-    async def on_submit(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        category = discord.utils.get(guild.categories, id=self.bot.general_support_category)
-        if not category:
-            await interaction.response.send_message("Category not configured.", ephemeral=True)
-            return
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
-        for role_name in self.bot.support_staff_roles:
-            role_id = self.bot.role_ids.get(role_name)
-            role = guild.get_role(role_id) if role_id else None
-            if role:
-                overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        try:
-            channel = await guild.create_text_channel(f"support-{interaction.user.name}", category=category, overwrites=overwrites)
-        except discord.HTTPException:
-            await interaction.response.send_message("Failed to create ticket.", ephemeral=True)
-            return
-        self.bot.db.create_ticket(channel.id, interaction.user.id, 'support')
-        embed = discord.Embed(title="Support Ticket", description=f"Opened by {interaction.user.mention}", color=discord.Color.blue())
-        embed.add_field(name="Issue", value=str(self.issue_summary), inline=False)
-        embed.add_field(name="Details", value=str(self.issue_details), inline=False)
-        view = TicketControlView(self.bot)
-        await channel.send(content=interaction.user.mention, embed=embed, view=view)
-        await interaction.response.send_message(f"Ticket created: {channel.mention}", ephemeral=True)
-
-class TicketControlView(discord.ui.View):
-    def __init__(self, bot):
-        super().__init__(timeout=None)
-        self.bot = bot
-
-    @discord.ui.button(label="Claim", style=discord.ButtonStyle.success, emoji="🙋", custom_id="ticket_claim")
-    async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.bot.has_middleman_permission(interaction.user):
-            await interaction.response.send_message("❌ You don't have permission to claim tickets!", ephemeral=True)
-            return
-        self.bot.db.claim_ticket(interaction.channel.id, interaction.user.id)
-        embed = discord.Embed(description=f"🙋 This ticket has been claimed by {interaction.user.mention}", color=discord.Color.green())
-        await interaction.response.send_message(embed=embed)
-
-    @discord.ui.button(label="Close", style=discord.ButtonStyle.danger, emoji="🔒", custom_id="ticket_close")
-    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.bot.has_middleman_permission(interaction.user):
-            await interaction.response.send_message("❌ You don't have permission to close tickets!", ephemeral=True)
-            return
-        self.bot.db.cursor.execute(
-            "UPDATE tickets SET status = 'closed', closed_at = ? WHERE channel_id = ?",
-            (datetime.now(), interaction.channel.id)
-        )
-        self.bot.db.conn.commit()
-        await interaction.response.send_message("✅ Ticket will be closed in 5 seconds...")
-        await asyncio.sleep(5)
-        await interaction.channel.delete()
-
-class MercyView(discord.ui.View):
-    def __init__(self, bot, user_id):
-        super().__init__(timeout=None)
-        self.bot = bot
-        self.user_id = user_id
-
-    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, emoji="✅", custom_id="mercy_accept")
-    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("This offer isn't for you.", ephemeral=True)
-            return
-        self.bot.db.add_mercy_user(interaction.user.id)
-        role = interaction.guild.get_role(self.bot.role_ids['Giveaway Pings'])
-        if role:
-            try:
-                await interaction.user.add_roles(role)
-            except discord.HTTPException:
-                pass
-        for child in self.children:
-            child.disabled = True
-        embed = discord.Embed(title="✅ Mercy Accepted", description="Welcome to the Mercy Program. Please open a ticket to get started.", color=discord.Color.green())
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, emoji="❌", custom_id="mercy_decline")
-    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("This offer isn't for you.", ephemeral=True)
-            return
-        for child in self.children:
-            child.disabled = True
-        embed = discord.Embed(title="❌ Mercy Declined", description="You have declined the Mercy Program offer.", color=discord.Color.red())
-        await interaction.response.edit_message(embed=embed, view=self)
-
-# ==================== RUN ====================
-
-if __name__ == "__main__":
-    token = os.getenv("DISCORD_TOKEN")
-    if not token:
-        raise RuntimeError("DISCORD_TOKEN environment variable is not set.")
-    bot.run(token)
+    tm_ping = bot.get_role
