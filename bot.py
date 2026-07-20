@@ -763,6 +763,8 @@ async def scamawareness(interaction: discord.Interaction):
     embed.add_field(
         name="Fake Trust or Middleman Sites",
         value=(
-            "Never conduct a trade through a third-party website, bot, or \"trusted trading "
-            "platform\" that is not explicitly listed as part of this server's official service. "
-            "These are commonly used to
+            "Never conduct a trade through a third-party website, bot, or trusted trading "
+            "platform that is not explicitly listed as part of this server's official service. "
+            "These are commonly used to intercept items, login credentials, or payment "
+            "information."
+       
