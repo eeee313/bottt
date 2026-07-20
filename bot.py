@@ -446,37 +446,55 @@ class TicketControlView(discord.ui.View):
     async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not can_claim_tickets(interaction.user):
             await interaction.response.send_message(
-                "❌ You don't have permission to claim tickets.", ephemeral=True
+                embed=error_embed("You don't have permission to claim tickets."), ephemeral=True
             )
             return
         info = data_store["tickets"].get(str(interaction.channel.id))
         if info is None:
-            await interaction.response.send_message("⚠️ This isn't a tracked ticket.", ephemeral=True)
+            await interaction.response.send_message(
+                embed=error_embed("This isn't a tracked ticket."), ephemeral=True
+            )
             return
         if info.get("claimed_by"):
             claimer = interaction.guild.get_member(info["claimed_by"])
             await interaction.response.send_message(
-                f"⚠️ Already claimed by {claimer.mention if claimer else 'someone'}.", ephemeral=True
+                embed=error_embed(f"Already claimed by {claimer.mention if claimer else 'someone'}."),
+                ephemeral=True,
             )
             return
         info["claimed_by"] = interaction.user.id
         save_data(data_store)
-        await interaction.response.send_message(f"✅ Ticket claimed by {interaction.user.mention}.")
+        embed = discord.Embed(
+            title="✅ Ticket Claimed",
+            description=f"This ticket is now being handled by {interaction.user.mention}.",
+            color=discord.Color.green(),
+            timestamp=discord.utils.utcnow(),
+        )
+        await interaction.response.send_message(embed=embed)
 
     @discord.ui.button(label="Unclaim", style=discord.ButtonStyle.gray, custom_id="ticket:unclaim")
     async def unclaim(self, interaction: discord.Interaction, button: discord.ui.Button):
         info = data_store["tickets"].get(str(interaction.channel.id))
         if info is None:
-            await interaction.response.send_message("⚠️ This isn't a tracked ticket.", ephemeral=True)
+            await interaction.response.send_message(
+                embed=error_embed("This isn't a tracked ticket."), ephemeral=True
+            )
             return
         if info.get("claimed_by") != interaction.user.id and not can_manage_roles(interaction.user):
             await interaction.response.send_message(
-                "❌ Only the staff member who claimed this ticket can unclaim it.", ephemeral=True
+                embed=error_embed("Only the staff member who claimed this ticket can unclaim it."),
+                ephemeral=True,
             )
             return
         info["claimed_by"] = None
         save_data(data_store)
-        await interaction.response.send_message("↩️ Ticket unclaimed.")
+        embed = discord.Embed(
+            title="↩️ Ticket Unclaimed",
+            description=f"{interaction.user.mention} has unclaimed this ticket. Another staff member can claim it now.",
+            color=discord.Color.light_grey(),
+            timestamp=discord.utils.utcnow(),
+        )
+        await interaction.response.send_message(embed=embed)
 
     @discord.ui.button(label="Close", style=discord.ButtonStyle.red, custom_id="ticket:close")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -484,15 +502,24 @@ class TicketControlView(discord.ui.View):
         is_opener = info and info.get("opener_id") == interaction.user.id
         if not (can_claim_tickets(interaction.user) or is_opener):
             await interaction.response.send_message(
-                "❌ You don't have permission to close this ticket.", ephemeral=True
+                embed=error_embed("You don't have permission to close this ticket."), ephemeral=True
             )
             return
-        await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
+        embed = discord.Embed(
+            title="🔒 Closing Ticket",
+            description="This ticket will close in 5 seconds...",
+            color=discord.Color.red(),
+        )
+        await interaction.response.send_message(embed=embed)
         await close_ticket_channel(interaction.channel, interaction.user)
 
 
+def error_embed(message: str) -> discord.Embed:
+    return discord.Embed(description=f"❌ {message}", color=discord.Color.red())
+
+
 async def close_ticket_channel(channel: discord.TextChannel, closer: discord.Member):
-    """Builds a simple text transcript, posts it to the transcripts channel, then deletes the ticket."""
+    """Builds a full text transcript, posts it to the transcripts channel, then deletes the ticket."""
     lines = []
     async for msg in channel.history(limit=None, oldest_first=True):
         ts = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
@@ -506,13 +533,16 @@ async def close_ticket_channel(channel: discord.TextChannel, closer: discord.Mem
 
     info = data_store["tickets"].get(str(channel.id), {})
     opener = channel.guild.get_member(info.get("opener_id")) if info.get("opener_id") else None
+    claimer = channel.guild.get_member(info.get("claimed_by")) if info.get("claimed_by") else None
 
     embed = discord.Embed(
-        title="📁 Ticket Closed",
-        description=f"**Ticket:** {channel.name}\n**Opened by:** {opener.mention if opener else 'Unknown'}\n**Closed by:** {closer.mention}",
-        color=discord.Color.red(),
+        title=f"📁 Transcript - {channel.name}",
+        color=discord.Color.dark_grey(),
         timestamp=discord.utils.utcnow(),
     )
+    embed.add_field(name="Opened by", value=opener.mention if opener else "Unknown", inline=True)
+    embed.add_field(name="Claimed by", value=claimer.mention if claimer else "Nobody", inline=True)
+    embed.add_field(name="Closed by", value=closer.mention, inline=True)
     await log_to_channel(
         channel.guild, TRANSCRIPTS_CHANNEL_ID, embed, file=discord.File(file_path)
     )
@@ -527,6 +557,7 @@ async def close_ticket_channel(channel: discord.TextChannel, closer: discord.Mem
     except discord.HTTPException:
         pass
     os.remove(file_path)
+
 
 
 # =========================================================
@@ -578,15 +609,21 @@ async def supportpanel_cmd(interaction: discord.Interaction):
 @app_commands.describe(user="The user to add to this ticket")
 async def add_cmd(interaction: discord.Interaction, user: discord.Member):
     if not can_claim_tickets(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission to do this.", ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("You don't have permission to do this."), ephemeral=True)
         return
     if str(interaction.channel.id) not in data_store["tickets"]:
-        await interaction.response.send_message("⚠️ This isn't a ticket channel.", ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("This isn't a ticket channel."), ephemeral=True)
         return
     await interaction.channel.set_permissions(
         user, view_channel=True, send_messages=True, read_message_history=True
     )
-    await interaction.response.send_message(f"✅ Added {user.mention} to the ticket.")
+    embed = discord.Embed(
+        title="➕ User Added",
+        description=f"{user.mention} has been added to this ticket by {interaction.user.mention}.",
+        color=discord.Color.green(),
+        timestamp=discord.utils.utcnow(),
+    )
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="close", description="Close the current ticket.")
@@ -594,12 +631,17 @@ async def close_cmd(interaction: discord.Interaction):
     info = data_store["tickets"].get(str(interaction.channel.id))
     is_opener = info and info.get("opener_id") == interaction.user.id
     if not (can_claim_tickets(interaction.user) or is_opener):
-        await interaction.response.send_message("❌ You don't have permission to do this.", ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("You don't have permission to do this."), ephemeral=True)
         return
     if info is None:
-        await interaction.response.send_message("⚠️ This isn't a ticket channel.", ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("This isn't a ticket channel."), ephemeral=True)
         return
-    await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
+    embed = discord.Embed(
+        title="🔒 Closing Ticket",
+        description="This ticket will close in 5 seconds...",
+        color=discord.Color.red(),
+    )
+    await interaction.response.send_message(embed=embed)
     await close_ticket_channel(interaction.channel, interaction.user)
 
 
@@ -607,25 +649,31 @@ async def close_cmd(interaction: discord.Interaction):
 @app_commands.describe(user="The staff member to transfer the ticket to")
 async def transfer_cmd(interaction: discord.Interaction, user: discord.Member):
     if not can_claim_tickets(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission to do this.", ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("You don't have permission to do this."), ephemeral=True)
         return
     if not can_claim_tickets(user):
-        await interaction.response.send_message(f"❌ {user.mention} isn't middleman staff.", ephemeral=True)
+        await interaction.response.send_message(embed=error_embed(f"{user.mention} isn't middleman staff."), ephemeral=True)
         return
     info = data_store["tickets"].get(str(interaction.channel.id))
     if info is None:
-        await interaction.response.send_message("⚠️ This isn't a ticket channel.", ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("This isn't a ticket channel."), ephemeral=True)
         return
     info["claimed_by"] = user.id
     save_data(data_store)
-    await interaction.response.send_message(f"🔁 Ticket transferred to {user.mention}.")
+    embed = discord.Embed(
+        title="🔁 Ticket Transferred",
+        description=f"This ticket has been transferred to {user.mention} by {interaction.user.mention}.",
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow(),
+    )
+    await interaction.response.send_message(embed=embed)
 
 
 # =========================================================
 #  MODERATION COMMANDS  (prefix +)
 # =========================================================
 
-BAN_COOLDOWN_SECONDS = 30 * 60  # 30 minutes
+BAN_COOLDOWN_SECONDS = 60 * 60  # 1 hour
 
 
 async def log_command_use(ctx: commands.Context, outcome: str, detail: str = ""):
@@ -653,7 +701,7 @@ async def ban_cmd(ctx: commands.Context, member: discord.Member = None, *, reaso
         await log_command_use(ctx, "⚠️ Bad usage (missing user/reason)")
         return
 
-    uid = str(ctx.author.id)
+    uid = f"ban:{ctx.author.id}"
     now = datetime.datetime.utcnow().timestamp()
     last_used = data_store["ban_cooldowns"].get(uid, 0)
     if now - last_used < BAN_COOLDOWN_SECONDS:
@@ -679,6 +727,56 @@ async def ban_cmd(ctx: commands.Context, member: discord.Member = None, *, reaso
         timestamp=discord.utils.utcnow(),
     )
     embed.add_field(name="User", value=f"{member} ({member.id})", inline=False)
+    embed.add_field(name="Moderator", value=ctx.author.mention, inline=False)
+    embed.add_field(name="Reason", value=reason, inline=False)
+    await ctx.send(embed=embed)
+    await log_to_channel(ctx.guild, MOD_LOG_CHANNEL_ID, embed)
+
+
+@bot.command(name="unban")
+async def unban_cmd(ctx: commands.Context, user_id: int = None, *, reason: str = None):
+    if not can_ban(ctx.author):
+        await ctx.send("❌ You don't have permission to use this command.")
+        await log_command_use(ctx, "❌ Denied (no permission)")
+        return
+    if user_id is None or reason is None:
+        await ctx.send("⚠️ You need to provide a user ID and reason. Usage: `+unban <user_id> reason`")
+        await log_command_use(ctx, "⚠️ Bad usage (missing user id/reason)")
+        return
+
+    uid = f"unban:{ctx.author.id}"
+    now = datetime.datetime.utcnow().timestamp()
+    last_used = data_store["ban_cooldowns"].get(uid, 0)
+    if now - last_used < BAN_COOLDOWN_SECONDS:
+        remaining = int(BAN_COOLDOWN_SECONDS - (now - last_used))
+        mins, secs = divmod(remaining, 60)
+        await ctx.send(f"⏳ You're on cooldown. Try again in {mins}m {secs}s.")
+        await log_command_use(ctx, "⏳ Blocked (cooldown)", f"Target ID: {user_id}")
+        return
+
+    try:
+        ban_entry = await ctx.guild.fetch_ban(discord.Object(id=user_id))
+    except discord.NotFound:
+        await ctx.send("⚠️ That user isn't banned.")
+        await log_command_use(ctx, "⚠️ Failed (user not banned)", f"Target ID: {user_id}")
+        return
+
+    try:
+        await ctx.guild.unban(ban_entry.user, reason=f"{reason} - by {ctx.author}")
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to unban that user.")
+        await log_command_use(ctx, "❌ Failed (bot missing permission)", f"Target: {ban_entry.user}")
+        return
+
+    data_store["ban_cooldowns"][uid] = now
+    save_data(data_store)
+
+    embed = discord.Embed(
+        title="🔓 Member Unbanned",
+        color=discord.Color.green(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="User", value=f"{ban_entry.user} ({ban_entry.user.id})", inline=False)
     embed.add_field(name="Moderator", value=ctx.author.mention, inline=False)
     embed.add_field(name="Reason", value=reason, inline=False)
     await ctx.send(embed=embed)
@@ -882,7 +980,8 @@ async def help_cmd(ctx: commands.Context):
     embed.add_field(
         name="Moderation",
         value=(
-            f"`{PREFIX}ban @user reason` - ban a member (30m cooldown)\n"
+            f"`{PREFIX}ban @user reason` - ban a member (1h cooldown)\n"
+            f"`{PREFIX}unban <user_id> reason` - unban a member (1h cooldown)\n"
             f"`{PREFIX}kick @user reason` - kick a member\n"
             f"`{PREFIX}warn @user reason` - warn a member\n"
             f"`{PREFIX}warnings @user` - view a member's warnings\n"
@@ -919,8 +1018,8 @@ async def help_cmd(ctx: commands.Context):
     embed.add_field(
         name="Trading (slash commands)",
         value=(
-            "`/offer @user` - send a trade offer\n"
-            "`/explain` - learn how to make the best trades\n"
+            "`/offer @user` - send a trade offer (posted in-channel)\n"
+            "`/explain` - post the \"learn how to trade\" panel\n"
             "`/about` `/faq` `/tos` `/scamawareness` - server info"
         ),
         inline=False,
@@ -946,11 +1045,11 @@ async def managerole_cmd(
     reason: str,
 ):
     if not can_manage_roles(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("You don't have permission to use this command."), ephemeral=True)
         return
 
     if role.id not in ROLE_HIERARCHY:
-        await interaction.response.send_message("⚠️ That isn't a managed staff role.", ephemeral=True)
+        await interaction.response.send_message(embed=error_embed("That isn't a managed staff role."), ephemeral=True)
         return
 
     # A staff member can only manage roles below their own rank.
@@ -958,7 +1057,7 @@ async def managerole_cmd(
     target_role_level = ROLE_HIERARCHY.index(role.id)
     if target_role_level >= actor_level and not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
-            "❌ You can only manage roles below your own rank.", ephemeral=True
+            embed=error_embed("You can only manage roles below your own rank."), ephemeral=True
         )
         return
 
@@ -993,7 +1092,7 @@ class OfferView(discord.ui.View):
     @discord.ui.button(label="Accept", style=discord.ButtonStyle.green, custom_id="offer:accept")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.target.id:
-            await interaction.response.send_message("This offer isn't for you.", ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("This offer isn't for you."), ephemeral=True)
             return
         role = interaction.guild.get_role(ROLE_GIVEAWAY_PING) if interaction.guild else None
         if role and isinstance(interaction.user, discord.Member):
@@ -1003,45 +1102,50 @@ class OfferView(discord.ui.View):
                 pass
         for child in self.children:
             child.disabled = True
-        await interaction.response.edit_message(
-            content="🎉 Great, you have accepted to become a trader!", view=self
+        embed = discord.Embed(
+            title="🎉 Offer Accepted",
+            description=f"{self.target.mention} has accepted the offer and is now a trader!",
+            color=discord.Color.green(),
+            timestamp=discord.utils.utcnow(),
         )
+        await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.red, custom_id="offer:decline")
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.target.id:
-            await interaction.response.send_message("This offer isn't for you.", ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("This offer isn't for you."), ephemeral=True)
             return
         for child in self.children:
             child.disabled = True
-        await interaction.response.edit_message(content="You have declined the offer.", view=self)
+        embed = discord.Embed(
+            title="Offer Declined",
+            description=f"{self.target.mention} has declined the offer.",
+            color=discord.Color.red(),
+            timestamp=discord.utils.utcnow(),
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
 
 
 @bot.tree.command(name="offer", description="Send a trade offer to a user.")
 @app_commands.describe(user="The user to offer a trade to")
 async def offer_cmd(interaction: discord.Interaction, user: discord.Member):
     if user.bot:
-        await interaction.response.send_message(
-            "⚠️ You can't send a trade offer to a bot.", ephemeral=True
-        )
+        await interaction.response.send_message(embed=error_embed("You can't send a trade offer to a bot."), ephemeral=True)
         return
     if user.id == interaction.user.id:
-        await interaction.response.send_message(
-            "⚠️ You can't send a trade offer to yourself.", ephemeral=True
-        )
+        await interaction.response.send_message(embed=error_embed("You can't send a trade offer to yourself."), ephemeral=True)
         return
     embed = discord.Embed(
-        title="You have been offered a trade!",
-        description="How will you accept? I will tend for you to accept this trade, to make more, etc.",
+        title="💼 Trade Offer",
+        description=(
+            f"{user.mention}, you have been offered a chance to become a trader!\n\n"
+            "Accept below to join and get pinged for future trade opportunities."
+        ),
         color=ACCENT_COLOR,
+        timestamp=discord.utils.utcnow(),
     )
-    try:
-        await user.send(embed=embed, view=OfferView(user))
-        await interaction.response.send_message(f"✅ Offer sent to {user.mention}.", ephemeral=True)
-    except discord.Forbidden:
-        await interaction.response.send_message(
-            f"⚠️ Couldn't DM {user.mention}, their DMs may be closed.", ephemeral=True
-        )
+    embed.set_footer(text=f"Offered by {interaction.user}")
+    await interaction.response.send_message(content=user.mention, embed=embed, view=OfferView(user))
 
 
 class ExplainStep2View(discord.ui.View):
@@ -1052,11 +1156,11 @@ class ExplainStep2View(discord.ui.View):
     @discord.ui.button(label="Next Step", style=discord.ButtonStyle.blurple)
     async def next_step(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner_id:
-            await interaction.response.send_message("This isn't your session.", ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("This isn't your session."), ephemeral=True)
             return
         embed = discord.Embed(
-            title="Step 3",
-            description="All done, good luck!",
+            title="Step 3 of 3",
+            description="All done, good luck out there! 🍀",
             color=ACCENT_COLOR,
         )
         await interaction.response.edit_message(embed=embed, view=None)
@@ -1070,10 +1174,10 @@ class ExplainStep1View(discord.ui.View):
     @discord.ui.button(label="Next Step", style=discord.ButtonStyle.blurple)
     async def next_step(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner_id:
-            await interaction.response.send_message("This isn't your session.", ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("This isn't your session."), ephemeral=True)
             return
         embed = discord.Embed(
-            title="Step 2",
+            title="Step 2 of 3",
             description=(
                 "Once you have a confirmed trade, make sure to tell them to use a "
                 "middleman, to keep the trade safe and secure."
@@ -1091,10 +1195,10 @@ class ExplainYesNoView(discord.ui.View):
     @discord.ui.button(label="Yes", style=discord.ButtonStyle.green)
     async def yes(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner_id:
-            await interaction.response.send_message("This isn't your session.", ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("This isn't your session."), ephemeral=True)
             return
         embed = discord.Embed(
-            title="Step 1",
+            title="Step 1 of 3",
             description=(
                 "Great, go to other servers and find trades. Once you have a trade, "
                 "make sure it's confirmed."
@@ -1106,18 +1210,50 @@ class ExplainYesNoView(discord.ui.View):
     @discord.ui.button(label="No", style=discord.ButtonStyle.red)
     async def no(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.owner_id:
-            await interaction.response.send_message("This isn't your session.", ephemeral=True)
+            await interaction.response.send_message(embed=error_embed("This isn't your session."), ephemeral=True)
             return
-        await interaction.response.edit_message(content="Okay, no worries!", embed=None, view=None)
+        embed = discord.Embed(description="Okay, no worries! Come back anytime.", color=discord.Color.light_grey())
+        await interaction.response.edit_message(embed=embed, view=None)
 
 
-@bot.tree.command(name="explain", description="Learn how to make the best trades.")
-async def explain_cmd(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        "Would you like to learn how to make the best trades?",
-        view=ExplainYesNoView(interaction.user.id),
-        ephemeral=True,
+class ExplainPanelView(discord.ui.View):
+    """Persistent panel posted with /explain. Anyone can click it to start their own private walkthrough."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Learn How To Trade",
+        emoji="📚",
+        style=discord.ButtonStyle.blurple,
+        custom_id="explain:learn",
     )
+    async def learn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="Learn How To Trade",
+            description="Would you like to learn how to make the best trades?",
+            color=ACCENT_COLOR,
+        )
+        await interaction.response.send_message(
+            embed=embed, view=ExplainYesNoView(interaction.user.id), ephemeral=True
+        )
+
+
+@bot.tree.command(name="explain", description="Post the 'learn how to trade' panel in this channel.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def explain_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="📚 Trading Guide",
+        description=(
+            "New to trading? Click the button below for a quick walkthrough on how "
+            "to make safe, successful trades with Levi's MM Services."
+        ),
+        color=ACCENT_COLOR,
+    )
+    embed.set_footer(text="Powered by Levi's MM Services")
+    await interaction.channel.send(embed=embed, view=ExplainPanelView())
+    await interaction.response.send_message("✅ Trading guide panel posted.", ephemeral=True)
+
 
 
 # =========================================================
@@ -1127,59 +1263,127 @@ async def explain_cmd(interaction: discord.Interaction):
 @bot.tree.command(name="about", description="Learn about Levi's MM Services.")
 async def about_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="ℹ️ About Levi's MM Services",
+        title="Levi's MM Services",
         description=(
-            "Levi's MM Services is a trusted trading community offering a professional, "
-            "secure middleman service to protect both parties of a trade.\n\n"
-            "Our staff team is trained, ranked, and held to strict standards to "
-            "ensure every trade is handled safely and fairly."
+            "A dedicated, staff-run middleman service built to keep trades safe, "
+            "transparent, and fair for everyone involved."
         ),
         color=EMBED_COLOR,
     )
-    embed.set_footer(text="Powered by Levi's MM Services")
+    embed.add_field(
+        name="🛡️ Our Mission",
+        value=(
+            "We exist to eliminate scams from trading by placing a trained, "
+            "vetted middleman between both parties for every deal."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="👥 Our Staff",
+        value=(
+            "Every staff member earns their rank through proven experience and "
+            "is held to strict conduct standards. Use `+info` to see rank "
+            "requirements and `+perks` for permissions per rank."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="💰 Cost",
+        value="Our core middleman service is completely free to use.",
+        inline=True,
+    )
+    embed.add_field(
+        name="⏱️ Availability",
+        value="Staff respond to tickets as quickly as possible around the clock.",
+        inline=True,
+    )
+    if interaction.guild and interaction.guild.icon:
+        embed.set_thumbnail(url=interaction.guild.icon.url)
+    embed.set_footer(text="Levi's MM Services • Use /faq /tos /scamawareness for more info")
+    embed.timestamp = discord.utils.utcnow()
     await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="faq", description="Frequently asked questions.")
 async def faq_cmd(interaction: discord.Interaction):
-    embed = discord.Embed(title="❓ Frequently Asked Questions", color=EMBED_COLOR)
+    embed = discord.Embed(
+        title="Frequently Asked Questions",
+        description="Answers to the questions we get asked most.",
+        color=EMBED_COLOR,
+    )
     embed.add_field(
         name="How do I request a middleman?",
-        value="Use the **Request Middleman** button on the ticket panel and fill out the form.",
+        value="Click **Request Middleman** on the ticket panel and complete the short form. A ticket will be created automatically.",
         inline=False,
     )
     embed.add_field(
         name="Is the middleman service free?",
-        value="Yes, our middleman service is completely free to use.",
+        value="Yes — our middleman service is completely free for all users.",
+        inline=False,
+    )
+    embed.add_field(
+        name="How long will I wait for a middleman?",
+        value="Response times vary with staff availability, but tickets are typically picked up quickly. Please be patient after opening one.",
         inline=False,
     )
     embed.add_field(
         name="How do I become staff?",
-        value="Check `/managerole` requirements with the `+info` command.",
+        value="Review the rank requirements with `+info` and the perks each rank unlocks with `+perks`.",
         inline=False,
     )
     embed.add_field(
-        name="What if the other party doesn't cooperate?",
-        value="Let the middleman know immediately in your ticket, and they will handle it accordingly.",
+        name="What happens if the other party doesn't cooperate?",
+        value="Notify the middleman handling your ticket immediately — they are trained to handle disputes and non-cooperation.",
         inline=False,
     )
+    embed.add_field(
+        name="Can I request a specific middleman?",
+        value="You can ask in your ticket, but assignment ultimately depends on staff availability.",
+        inline=False,
+    )
+    embed.set_footer(text="Levi's MM Services • Still have questions? Open a support ticket")
     await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="tos", description="Terms of Service.")
 async def tos_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="📜 Terms of Service",
-        description=(
-            "1. Both parties must agree to a trade before requesting a middleman.\n"
-            "2. Fake, troll, or wasted tickets will result in punishment.\n"
-            "3. Staff decisions during a trade dispute are final.\n"
-            "4. Any attempt to scam another user will result in an immediate ban.\n"
-            "5. By using this service, you agree to follow all server rules and "
-            "staff instructions during your trade."
-        ),
+        title="Terms of Service",
+        description="By using our middleman service, you agree to the following terms.",
         color=EMBED_COLOR,
     )
+    embed.add_field(
+        name="1. Mutual Agreement",
+        value="Both parties must agree to the trade before a middleman is requested.",
+        inline=False,
+    )
+    embed.add_field(
+        name="2. Accurate Information",
+        value="You must clearly and honestly state the trade and its value when opening a ticket.",
+        inline=False,
+    )
+    embed.add_field(
+        name="3. No Fake or Troll Tickets",
+        value="Wasting staff time with fake, joke, or troll tickets will result in punishment.",
+        inline=False,
+    )
+    embed.add_field(
+        name="4. Staff Authority",
+        value="Staff decisions during a trade dispute are final and must be respected.",
+        inline=False,
+    )
+    embed.add_field(
+        name="5. Zero Tolerance for Scamming",
+        value="Any attempt to scam another user through our service will result in an immediate, permanent ban.",
+        inline=False,
+    )
+    embed.add_field(
+        name="6. Server Rules Apply",
+        value="You agree to follow all server rules and staff instructions for the duration of your trade.",
+        inline=False,
+    )
+    embed.set_footer(text="Levi's MM Services • Terms of Service")
+    embed.timestamp = discord.utils.utcnow()
     await interaction.response.send_message(embed=embed)
 
 
@@ -1187,16 +1391,35 @@ async def tos_cmd(interaction: discord.Interaction):
 async def scamawareness_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🚨 Scam Awareness",
-        description=(
-            "Protect yourself when trading:\n\n"
-            "• Never trade without a middleman for higher-value deals.\n"
-            "• Never share your password, login link, or 2FA codes with anyone.\n"
-            "• Be cautious of deals that sound too good to be true.\n"
-            "• Always double check who you're trading with before confirming.\n"
-            "• Report any suspicious activity to staff immediately."
-        ),
+        description="Trading always carries risk. Follow these guidelines to keep yourself protected.",
         color=discord.Color.red(),
     )
+    embed.add_field(
+        name="Always Use a Middleman",
+        value="For any trade of meaningful value, use our free middleman service rather than trading directly.",
+        inline=False,
+    )
+    embed.add_field(
+        name="Never Share Sensitive Info",
+        value="Never give out your password, login links, authenticator codes, or 2FA codes to anyone — including staff.",
+        inline=False,
+    )
+    embed.add_field(
+        name="Too Good To Be True?",
+        value="Be suspicious of offers that seem unusually generous or urgent — that pressure is a common scam tactic.",
+        inline=False,
+    )
+    embed.add_field(
+        name="Verify Who You're Trading With",
+        value="Double-check usernames, IDs, and profiles before confirming any trade, even with someone who seems familiar.",
+        inline=False,
+    )
+    embed.add_field(
+        name="Report Suspicious Activity",
+        value="If something feels off, stop the trade and report it to staff immediately — don't wait until after the fact.",
+        inline=False,
+    )
+    embed.set_footer(text="Levi's MM Services • Stay safe, trade smart")
     await interaction.response.send_message(embed=embed)
 
 
@@ -1209,6 +1432,7 @@ async def on_ready():
     bot.add_view(TicketRequestView())
     bot.add_view(SupportPanelView())
     bot.add_view(TicketControlView())
+    bot.add_view(ExplainPanelView())
     try:
         if GUILD_ID:
             guild_obj = discord.Object(id=GUILD_ID)
