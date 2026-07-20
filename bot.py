@@ -1,635 +1,1133 @@
-import discord
-from discord.ext import commands
-from discord import app_commands
-import sqlite3
-from datetime import datetime
-import asyncio
+"""
+BloxTrades / Levi's Middleman Services - Discord Bot
+Full ticket system + moderation system + role/rank system.
+
+Run with:  python bot.py
+Requires:  DISCORD_TOKEN in your .env / Railway variables.
+"""
+
 import os
+import json
+import asyncio
+import datetime
+from typing import Optional
 
-print("=== LEVI'S MIDDLEMAN BOT STARTING ===")
-print(f"Python version: {os.sys.version}")
-print(f"Token exists: {bool(os.getenv('DISCORD_TOKEN'))}")
+import discord
+from discord import app_commands
+from discord.ext import commands
+from dotenv import load_dotenv
 
-class Database:
-    def __init__(self):
-        self.conn = sqlite3.connect('middleman.db')
-        self.cursor = self.conn.cursor()
-        self.create_tables()
+load_dotenv()
 
-    def create_tables(self):
-        self.cursor.execute('CREATE TABLE IF NOT EXISTS warnings (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, moderator_id INTEGER, reason TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)')
-        self.cursor.execute('CREATE TABLE IF NOT EXISTS tickets (id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id INTEGER, user_id INTEGER, middleman_id INTEGER, status TEXT DEFAULT "open", ticket_type TEXT DEFAULT "middleman", created_at DATETIME DEFAULT CURRENT_TIMESTAMP, closed_at DATETIME)')
+# =========================================================
+#  CONFIG  -  edit these to match your server if anything
+#  ever changes. IDs below come from what you gave me.
+# =========================================================
+
+TOKEN = os.getenv("DISCORD_TOKEN")
+PREFIX = os.getenv("PREFIX", "+")
+GUILD_ID = int(os.getenv("GUILD_ID", "0"))  # optional, speeds up slash sync
+
+# ---- Channels ----
+ROLE_LOG_CHANNEL_ID = 1528865980988788861          # transcript role log
+MOD_LOG_CHANNEL_ID = 1528865970699898971           # moderation log
+TRANSCRIPTS_CHANNEL_ID = 1528865962588373154       # ticket transcripts
+TICKET_CATEGORY_ID = 1527856283498184876           # middleman ticket category
+SUPPORT_TICKET_CATEGORY_ID = 1528491782491345107   # /support ticket category
+
+# ---- Roles (lowest -> highest authority) ----
+ROLE_GIVEAWAY_PING = 1528463410562601131
+ROLE_TRIAL_MM = 1528463468737466469
+ROLE_MM = 1528463607543894067
+ROLE_LEAD_MM = 1528463688154218618
+ROLE_MODERATOR = 1528463980329439325
+ROLE_COORDINATOR = 1528465524424573149
+ROLE_OVERSEER = 1528465730176290857
+ROLE_HEAD_MANAGEMENT = 1528465890302230618
+ROLE_HEAD_COORDINATION = 1528466122238591198
+ROLE_HEAD_OPERATIONS = 1528466496890605660
+ROLE_HEAD_DEV = 1528466008170303559
+ROLE_HEAD_STAFF = 1528466750956376094
+ROLE_PRESIDENT = 1528466975464882290
+
+# Ordered lowest -> highest, used for hierarchy checks + /managerole
+ROLE_HIERARCHY = [
+    ROLE_TRIAL_MM,
+    ROLE_MM,
+    ROLE_LEAD_MM,
+    ROLE_MODERATOR,
+    ROLE_COORDINATOR,
+    ROLE_OVERSEER,
+    ROLE_HEAD_MANAGEMENT,
+    ROLE_HEAD_COORDINATION,
+    ROLE_HEAD_OPERATIONS,
+    ROLE_HEAD_DEV,
+    ROLE_HEAD_STAFF,
+    ROLE_PRESIDENT,
+]
+
+ROLE_NAMES = {
+    ROLE_GIVEAWAY_PING: "Giveaway Pings",
+    ROLE_TRIAL_MM: "Trial Middleman",
+    ROLE_MM: "Middleman",
+    ROLE_LEAD_MM: "Lead Middleman",
+    ROLE_MODERATOR: "Moderator",
+    ROLE_COORDINATOR: "Coordinator",
+    ROLE_OVERSEER: "Overseer",
+    ROLE_HEAD_MANAGEMENT: "Head of Management",
+    ROLE_HEAD_COORDINATION: "Head of Coordination",
+    ROLE_HEAD_OPERATIONS: "Head of Operations",
+    ROLE_HEAD_DEV: "Head of Dev",
+    ROLE_HEAD_STAFF: "Head of Staff",
+    ROLE_PRESIDENT: "President",
+}
+
+# Requirement text shown in +info
+ROLE_REQUIREMENTS = [
+    (ROLE_TRIAL_MM, "5 hits OR $5"),
+    (ROLE_MM, "10 hits OR $10 | $5 if already Trial Middleman"),
+    (ROLE_LEAD_MM, "20 hits OR $15 | $7 if already Middleman"),
+    (ROLE_MODERATOR, "30 hits OR $25 | $10 if already Lead Middleman"),
+    (ROLE_COORDINATOR, "50 hits OR $25 | $15 if already Moderator"),
+    (ROLE_OVERSEER, "$50 | $35 if already Coordinator"),
+    (ROLE_HEAD_MANAGEMENT, "$75 | $50 if already Overseer"),
+    (ROLE_HEAD_COORDINATION, "$100 | $70 if already Head of Management"),
+    (ROLE_HEAD_OPERATIONS, "$150 | $100 if already Head of Coordination"),
+    (ROLE_HEAD_DEV, "$200 | $150 if already Head of Operations"),
+    (ROLE_HEAD_STAFF, "$300 | $200 if already Head of Dev"),
+    (ROLE_PRESIDENT, "$500 | $350 if already Head of Staff"),
+]
+
+# Perms text shown in +perks
+ROLE_PERKS = [
+    (ROLE_GIVEAWAY_PING, "Get this role after accepting the Mercy Program, hitters only."),
+    (ROLE_TRIAL_MM, "Claim tickets, handle tickets, use middleman commands, view transcripts."),
+    (ROLE_MM, "Claim tickets, handle tickets, use middleman commands, view transcripts, warn members."),
+    (ROLE_LEAD_MM, "Claim tickets, handle tickets, use middleman commands, view transcripts, warn members."),
+    (ROLE_MODERATOR, "Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members."),
+    (ROLE_COORDINATOR, "Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members."),
+    (ROLE_OVERSEER, "Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell Trial Middleman, promote Trial Middleman."),
+    (ROLE_HEAD_MANAGEMENT, "All Overseer perks, sell and promote Overseer and below."),
+    (ROLE_HEAD_COORDINATION, "All Overseer perks, sell and promote Head of Management and below."),
+    (ROLE_HEAD_OPERATIONS, "All Overseer perks, sell and promote Head of Coordination and below."),
+    (ROLE_HEAD_DEV, "All Overseer perks, sell and promote Head of Operations and below."),
+    (ROLE_HEAD_STAFF, "All Overseer perks, sell and promote Head of Development and below."),
+    (ROLE_PRESIDENT, "Admin perms, can do everything below, and sell all roles below."),
+]
+
+EMBED_COLOR = 0x2B2D31
+ACCENT_COLOR = 0x5865F2
+
+# =========================================================
+#  PERSISTENCE (simple JSON store - warnings/cooldowns/tickets)
+# =========================================================
+
+DATA_FILE = os.path.join(os.path.dirname(__file__), "data.json")
+
+
+def load_data() -> dict:
+    if not os.path.exists(DATA_FILE):
+        return {"warnings": {}, "ban_cooldowns": {}, "ticket_count": 0, "tickets": {}}
+    with open(DATA_FILE, "r") as f:
+        return json.load(f)
+
+
+def save_data(data: dict):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+data_store = load_data()
+
+# =========================================================
+#  BOT SETUP
+# =========================================================
+
+intents = discord.Intents.default()
+intents.members = True
+intents.message_content = True
+
+bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
+
+
+# =========================================================
+#  PERMISSION HELPERS
+# =========================================================
+
+def member_role_level(member: discord.Member) -> int:
+    """Highest index in ROLE_HIERARCHY the member holds, -1 if none."""
+    level = -1
+    member_role_ids = {r.id for r in member.roles}
+    for i, rid in enumerate(ROLE_HIERARCHY):
+        if rid in member_role_ids:
+            level = i
+    return level
+
+
+def has_min_role(member: discord.Member, min_role_id: int) -> bool:
+    if member.guild_permissions.administrator:
+        return True
+    min_level = ROLE_HIERARCHY.index(min_role_id)
+    return member_role_level(member) >= min_level
+
+
+def can_claim_tickets(member: discord.Member) -> bool:
+    return has_min_role(member, ROLE_TRIAL_MM)
+
+
+def can_warn(member: discord.Member) -> bool:
+    return has_min_role(member, ROLE_MM)
+
+
+def can_moderate(member: discord.Member) -> bool:
+    """mute / unmute / timeout"""
+    return has_min_role(member, ROLE_MODERATOR)
+
+
+def can_ban(member: discord.Member) -> bool:
+    return has_min_role(member, ROLE_OVERSEER)
+
+
+def can_manage_roles(member: discord.Member) -> bool:
+    return has_min_role(member, ROLE_HEAD_MANAGEMENT)
+
+
+async def log_to_channel(guild: discord.Guild, channel_id: int, embed: discord.Embed, file: Optional[discord.File] = None):
+    channel = guild.get_channel(channel_id)
+    if channel:
         try:
-            self.cursor.execute("ALTER TABLE tickets ADD COLUMN ticket_type TEXT DEFAULT 'middleman'")
-            self.conn.commit()
-        except sqlite3.OperationalError:
+            if file:
+                await channel.send(embed=embed, file=file)
+            else:
+                await channel.send(embed=embed)
+        except discord.HTTPException:
             pass
-        self.cursor.execute('CREATE TABLE IF NOT EXISTS vouches (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, vouch_count INTEGER DEFAULT 0)')
-        self.cursor.execute('CREATE TABLE IF NOT EXISTS hits (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, hit_count INTEGER DEFAULT 0)')
-        self.cursor.execute('CREATE TABLE IF NOT EXISTS mercy_users (user_id INTEGER PRIMARY KEY, accepted_at DATETIME DEFAULT CURRENT_TIMESTAMP)')
-        self.conn.commit()
 
-    def add_warning(self, user_id, moderator_id, reason):
-        self.cursor.execute("INSERT INTO warnings (user_id, moderator_id, reason) VALUES (?, ?, ?)", (user_id, moderator_id, reason))
-        self.conn.commit()
-        return self.cursor.lastrowid
 
-    def get_warnings(self, user_id):
-        self.cursor.execute("SELECT id, moderator_id, reason, timestamp FROM warnings WHERE user_id = ? ORDER BY timestamp DESC", (user_id,))
-        return self.cursor.fetchall()
+# =========================================================
+#  TICKET SYSTEM
+# =========================================================
 
-    def clear_warnings(self, user_id):
-        self.cursor.execute("DELETE FROM warnings WHERE user_id = ?", (user_id,))
-        self.conn.commit()
+def build_ticket_embed(opener: discord.Member, answers: dict) -> discord.Embed:
+    embed = discord.Embed(
+        title="💎 Middleman Ticket Created",
+        description="Your middleman ticket has been successfully created!\nA **middleman** will join shortly to assist with your trade.",
+        color=ACCENT_COLOR,
+    )
+    embed.add_field(name="User", value=opener.mention, inline=True)
+    embed.add_field(name="Status", value="🟢 Open", inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=True)
+    embed.add_field(name="Who is the other person?", value=answers["other_person"], inline=False)
+    embed.add_field(name="What is the trade?", value=answers["trade"], inline=False)
+    embed.add_field(name="Did both agree to this trade?", value=answers["agreed"], inline=False)
+    embed.add_field(name="Can you join a private server?", value=answers["private_server"], inline=False)
+    embed.set_footer(text="Thank you for keeping your trade safe, smooth, and secure! • BloxTrades")
+    embed.timestamp = discord.utils.utcnow()
+    return embed
 
-    def delete_warning(self, warning_id):
-        self.cursor.execute("DELETE FROM warnings WHERE id = ?", (warning_id,))
-        self.conn.commit()
 
-    def add_vouch(self, user_id):
-        self.cursor.execute("INSERT INTO vouches (user_id, vouch_count) VALUES (?, 1) ON CONFLICT(user_id) DO UPDATE SET vouch_count = vouch_count + 1", (user_id,))
-        self.conn.commit()
+class MMTicketModal(discord.ui.Modal, title="MM Ticket Request"):
+    other_person = discord.ui.TextInput(
+        label="Who is the other person?",
+        placeholder="Enter their Discord username and ID",
+        required=True,
+        max_length=200,
+    )
+    trade = discord.ui.TextInput(
+        label="What is the trade?",
+        placeholder="Describe the items/game/currency being traded",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=500,
+    )
+    agreed = discord.ui.TextInput(
+        label="Did both agree to this trade?",
+        placeholder="Yes/No with proof if possible",
+        required=True,
+        max_length=200,
+    )
+    private_server = discord.ui.TextInput(
+        label="Can you join a private server?",
+        placeholder="Yes/No (link will be provided)",
+        required=True,
+        max_length=200,
+    )
 
-    def get_vouch_count(self, user_id):
-        self.cursor.execute("SELECT vouch_count FROM vouches WHERE user_id = ?", (user_id,))
-        result = self.cursor.fetchone()
-        return result[0] if result else 0
+    async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        category = guild.get_channel(TICKET_CATEGORY_ID)
+        if category is None:
+            await interaction.response.send_message(
+                "⚠️ Ticket category not found. Contact an admin.", ephemeral=True
+            )
+            return
 
-    def remove_vouches(self, user_id, count=0):
-        if count > 0:
-            self.cursor.execute("UPDATE vouches SET vouch_count = vouch_count - ? WHERE user_id = ?", (count, user_id))
-        else:
-            self.cursor.execute("DELETE FROM vouches WHERE user_id = ?", (user_id,))
-        self.conn.commit()
+        data_store["ticket_count"] += 1
+        ticket_num = data_store["ticket_count"]
+        channel_name = f"mm-{interaction.user.name}-{ticket_num}"[:100]
 
-    def add_hit(self, user_id):
-        self.cursor.execute("INSERT INTO hits (user_id, hit_count) VALUES (?, 1) ON CONFLICT(user_id) DO UPDATE SET hit_count = hit_count + 1", (user_id,))
-        self.conn.commit()
-        return self.get_hit_count(user_id)
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True
+            ),
+            guild.me: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, manage_channels=True
+            ),
+        }
+        for rid in (ROLE_TRIAL_MM, ROLE_MM, ROLE_LEAD_MM, ROLE_MODERATOR):
+            role = guild.get_role(rid)
+            if role:
+                overwrites[role] = discord.PermissionOverwrite(
+                    view_channel=True, send_messages=True, read_message_history=True
+                )
 
-    def get_hit_count(self, user_id):
-        self.cursor.execute("SELECT hit_count FROM hits WHERE user_id = ?", (user_id,))
-        result = self.cursor.fetchone()
-        return result[0] if result else 0
+        channel = await guild.create_text_channel(
+            channel_name, category=category, overwrites=overwrites
+        )
 
-    def add_mercy_user(self, user_id):
-        self.cursor.execute("INSERT OR IGNORE INTO mercy_users (user_id) VALUES (?)", (user_id,))
-        self.conn.commit()
+        answers = {
+            "other_person": self.other_person.value,
+            "trade": self.trade.value,
+            "agreed": self.agreed.value,
+            "private_server": self.private_server.value,
+        }
+        data_store["tickets"][str(channel.id)] = {
+            "opener_id": interaction.user.id,
+            "claimed_by": None,
+            "status": "open",
+            "type": "middleman",
+        }
+        save_data(data_store)
 
-    def is_mercy_user(self, user_id):
-        self.cursor.execute("SELECT user_id FROM mercy_users WHERE user_id = ?", (user_id,))
-        return self.cursor.fetchone() is not None
+        embed = build_ticket_embed(interaction.user, answers)
+        embed.description = (
+            f"{interaction.user.mention}\n\n" + embed.description
+        )
+        await channel.send(
+            content=f"{interaction.user.mention}", embed=embed, view=TicketControlView()
+        )
 
-    def create_ticket(self, channel_id, user_id, ticket_type='middleman'):
-        self.cursor.execute("INSERT INTO tickets (channel_id, user_id, ticket_type) VALUES (?, ?, ?)", (channel_id, user_id, ticket_type))
-        self.conn.commit()
-        return self.cursor.lastrowid
+        await interaction.response.send_message(
+            f"✅ Your ticket has been created: {channel.mention}", ephemeral=True
+        )
 
-    def get_open_ticket(self, user_id, ticket_type='middleman'):
-        self.cursor.execute("SELECT channel_id FROM tickets WHERE user_id = ? AND status = 'open' AND ticket_type = ?", (user_id, ticket_type))
-        return self.cursor.fetchone()
+        log_embed = discord.Embed(
+            title="🎫 Ticket Opened",
+            description=f"**Channel:** {channel.mention}\n**Opened by:** {interaction.user.mention}",
+            color=discord.Color.green(),
+            timestamp=discord.utils.utcnow(),
+        )
+        await log_to_channel(guild, MOD_LOG_CHANNEL_ID, log_embed)
 
-    def claim_ticket(self, channel_id, middleman_id):
-        self.cursor.execute("UPDATE tickets SET middleman_id = ? WHERE channel_id = ? AND status = 'open'", (middleman_id, channel_id))
-        self.conn.commit()
 
-    def get_ticket(self, channel_id):
-        self.cursor.execute("SELECT user_id, middleman_id, status, ticket_type FROM tickets WHERE channel_id = ?", (channel_id,))
-        return self.cursor.fetchone()
+class SupportTicketModal(discord.ui.Modal, title="Support Ticket"):
+    reason = discord.ui.TextInput(
+        label="What do you need help with?",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=500,
+    )
 
-class MiddlemanBot(commands.Bot):
+    async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        category = guild.get_channel(SUPPORT_TICKET_CATEGORY_ID)
+        if category is None:
+            await interaction.response.send_message(
+                "⚠️ Support category not found. Contact an admin.", ephemeral=True
+            )
+            return
+
+        data_store["ticket_count"] += 1
+        ticket_num = data_store["ticket_count"]
+        channel_name = f"support-{interaction.user.name}-{ticket_num}"[:100]
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True
+            ),
+            guild.me: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, manage_channels=True
+            ),
+        }
+        for rid in (ROLE_TRIAL_MM, ROLE_MM, ROLE_LEAD_MM, ROLE_MODERATOR):
+            role = guild.get_role(rid)
+            if role:
+                overwrites[role] = discord.PermissionOverwrite(
+                    view_channel=True, send_messages=True, read_message_history=True
+                )
+
+        channel = await guild.create_text_channel(
+            channel_name, category=category, overwrites=overwrites
+        )
+
+        data_store["tickets"][str(channel.id)] = {
+            "opener_id": interaction.user.id,
+            "claimed_by": None,
+            "status": "open",
+            "type": "support",
+        }
+        save_data(data_store)
+
+        embed = discord.Embed(
+            title="🛠️ Support Ticket Created",
+            description=f"{interaction.user.mention}\n\n**Reason:**\n{self.reason.value}",
+            color=ACCENT_COLOR,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.set_footer(text="A staff member will be with you shortly • BloxTrades")
+
+        await channel.send(
+            content=f"{interaction.user.mention}", embed=embed, view=TicketControlView()
+        )
+        await interaction.response.send_message(
+            f"✅ Your support ticket has been created: {channel.mention}", ephemeral=True
+        )
+
+
+class TicketRequestView(discord.ui.View):
+    """Persistent view for the middleman request panel."""
+
     def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True
-        intents.members = True
-        intents.guilds = True
-        super().__init__(command_prefix='+', intents=intents)
-        self.db = Database()
-        self.role_ids = {
-            'Giveaway Pings': 1528463410562601131,
-            'Trial Middleman': 1528463468737466469,
-            'Middleman': 1528463607543894067,
-            'Lead Middleman': 1528463688154218618,
-            'Moderator': 1528463980329439325,
-            'Coordinator': 1528465524424573149,
-            'Overseer': 1528465730176290857,
-            'Head of Management': 1528465890302230618,
-            'Head of Coordination': 1528466122238591198,
-            'Head of Operations': 1528466496890605660,
-            'Head of Dev': 1528466008170303559,
-            'Head of Staff': 1528466750956376094,
-            'President': 1528466975464882290,
-            'Setup Role': 1526271680371232788,
-            'Auto Role Member': 1526273333811876071
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Request Middleman",
+        emoji="💎",
+        style=discord.ButtonStyle.blurple,
+        custom_id="mm:request_middleman",
+    )
+    async def request_middleman(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(MMTicketModal())
+
+
+class SupportPanelView(discord.ui.View):
+    """Persistent view for the /support panel."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Open Support Ticket",
+        emoji="🛠️",
+        style=discord.ButtonStyle.blurple,
+        custom_id="support:open_ticket",
+    )
+    async def open_support(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(SupportTicketModal())
+
+
+class TicketControlView(discord.ui.View):
+    """Persistent view attached to every ticket channel (Claim / Unclaim / Close)."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Claim", style=discord.ButtonStyle.green, custom_id="ticket:claim")
+    async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not can_claim_tickets(interaction.user):
+            await interaction.response.send_message(
+                "❌ You don't have permission to claim tickets.", ephemeral=True
+            )
+            return
+        info = data_store["tickets"].get(str(interaction.channel.id))
+        if info is None:
+            await interaction.response.send_message("⚠️ This isn't a tracked ticket.", ephemeral=True)
+            return
+        if info.get("claimed_by"):
+            claimer = interaction.guild.get_member(info["claimed_by"])
+            await interaction.response.send_message(
+                f"⚠️ Already claimed by {claimer.mention if claimer else 'someone'}.", ephemeral=True
+            )
+            return
+        info["claimed_by"] = interaction.user.id
+        save_data(data_store)
+        await interaction.response.send_message(f"✅ Ticket claimed by {interaction.user.mention}.")
+
+    @discord.ui.button(label="Unclaim", style=discord.ButtonStyle.gray, custom_id="ticket:unclaim")
+    async def unclaim(self, interaction: discord.Interaction, button: discord.ui.Button):
+        info = data_store["tickets"].get(str(interaction.channel.id))
+        if info is None:
+            await interaction.response.send_message("⚠️ This isn't a tracked ticket.", ephemeral=True)
+            return
+        if info.get("claimed_by") != interaction.user.id and not can_manage_roles(interaction.user):
+            await interaction.response.send_message(
+                "❌ Only the staff member who claimed this ticket can unclaim it.", ephemeral=True
+            )
+            return
+        info["claimed_by"] = None
+        save_data(data_store)
+        await interaction.response.send_message("↩️ Ticket unclaimed.")
+
+    @discord.ui.button(label="Close", style=discord.ButtonStyle.red, custom_id="ticket:close")
+    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+        info = data_store["tickets"].get(str(interaction.channel.id))
+        is_opener = info and info.get("opener_id") == interaction.user.id
+        if not (can_claim_tickets(interaction.user) or is_opener):
+            await interaction.response.send_message(
+                "❌ You don't have permission to close this ticket.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
+        await close_ticket_channel(interaction.channel, interaction.user)
+
+
+async def close_ticket_channel(channel: discord.TextChannel, closer: discord.Member):
+    """Builds a simple text transcript, posts it to the transcripts channel, then deletes the ticket."""
+    lines = []
+    async for msg in channel.history(limit=None, oldest_first=True):
+        ts = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        content = msg.content or "[embed/attachment]"
+        lines.append(f"[{ts}] {msg.author}: {content}")
+
+    transcript_text = "\n".join(lines) if lines else "No messages."
+    file_path = f"/tmp/transcript-{channel.id}.txt"
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(transcript_text)
+
+    info = data_store["tickets"].get(str(channel.id), {})
+    opener = channel.guild.get_member(info.get("opener_id")) if info.get("opener_id") else None
+
+    embed = discord.Embed(
+        title="📁 Ticket Closed",
+        description=f"**Ticket:** {channel.name}\n**Opened by:** {opener.mention if opener else 'Unknown'}\n**Closed by:** {closer.mention}",
+        color=discord.Color.red(),
+        timestamp=discord.utils.utcnow(),
+    )
+    await log_to_channel(
+        channel.guild, TRANSCRIPTS_CHANNEL_ID, embed, file=discord.File(file_path)
+    )
+
+    if str(channel.id) in data_store["tickets"]:
+        data_store["tickets"][str(channel.id)]["status"] = "closed"
+        save_data(data_store)
+
+    await asyncio.sleep(5)
+    try:
+        await channel.delete()
+    except discord.HTTPException:
+        pass
+    os.remove(file_path)
+
+
+# =========================================================
+#  SLASH COMMANDS - TICKET MANAGEMENT
+# =========================================================
+
+@bot.tree.command(name="support", description="Post the support ticket panel in this channel.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def support_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="bloxtrades | MM Service",
+        description=(
+            "Welcome to our middleman Service centre.\n\n"
+            "At bloxtrades, we value and provide a safe and secure way to exchange your goods.\n\n"
+            "**If you've found a trade and want to ensure your safety, you can use our middleman service.**\n\n"
+            "**Usage Conditions:**\n"
+            "• Both parties agree to trade before requesting a middleman.\n"
+            "• State the trade and value.\n"
+            "• Fake or troll tickets will result in punishments."
+        ),
+        color=EMBED_COLOR,
+    )
+    embed.set_footer(text="Powered by bloxtrades")
+    await interaction.channel.send(embed=embed, view=TicketRequestView())
+    await interaction.response.send_message("✅ Support panel posted.", ephemeral=True)
+
+
+@bot.tree.command(name="add", description="Add a user to the current ticket.")
+@app_commands.describe(user="The user to add to this ticket")
+async def add_cmd(interaction: discord.Interaction, user: discord.Member):
+    if not can_claim_tickets(interaction.user):
+        await interaction.response.send_message("❌ You don't have permission to do this.", ephemeral=True)
+        return
+    if str(interaction.channel.id) not in data_store["tickets"]:
+        await interaction.response.send_message("⚠️ This isn't a ticket channel.", ephemeral=True)
+        return
+    await interaction.channel.set_permissions(
+        user, view_channel=True, send_messages=True, read_message_history=True
+    )
+    await interaction.response.send_message(f"✅ Added {user.mention} to the ticket.")
+
+
+@bot.tree.command(name="close", description="Close the current ticket.")
+async def close_cmd(interaction: discord.Interaction):
+    info = data_store["tickets"].get(str(interaction.channel.id))
+    is_opener = info and info.get("opener_id") == interaction.user.id
+    if not (can_claim_tickets(interaction.user) or is_opener):
+        await interaction.response.send_message("❌ You don't have permission to do this.", ephemeral=True)
+        return
+    if info is None:
+        await interaction.response.send_message("⚠️ This isn't a ticket channel.", ephemeral=True)
+        return
+    await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
+    await close_ticket_channel(interaction.channel, interaction.user)
+
+
+@bot.tree.command(name="transfer", description="Transfer this ticket's claim to another staff member.")
+@app_commands.describe(user="The staff member to transfer the ticket to")
+async def transfer_cmd(interaction: discord.Interaction, user: discord.Member):
+    if not can_claim_tickets(interaction.user):
+        await interaction.response.send_message("❌ You don't have permission to do this.", ephemeral=True)
+        return
+    if not can_claim_tickets(user):
+        await interaction.response.send_message(f"❌ {user.mention} isn't middleman staff.", ephemeral=True)
+        return
+    info = data_store["tickets"].get(str(interaction.channel.id))
+    if info is None:
+        await interaction.response.send_message("⚠️ This isn't a ticket channel.", ephemeral=True)
+        return
+    info["claimed_by"] = user.id
+    save_data(data_store)
+    await interaction.response.send_message(f"🔁 Ticket transferred to {user.mention}.")
+
+
+# =========================================================
+#  MODERATION COMMANDS  (prefix +)
+# =========================================================
+
+BAN_COOLDOWN_SECONDS = 30 * 60  # 30 minutes
+
+
+@bot.command(name="ban")
+async def ban_cmd(ctx: commands.Context, member: discord.Member = None, *, reason: str = None):
+    if not can_ban(ctx.author):
+        await ctx.send("❌ You don't have permission to use this command.")
+        return
+    if member is None or reason is None:
+        await ctx.send("⚠️ You need to provide a user and reason. Usage: `+ban @user reason`")
+        return
+
+    uid = str(ctx.author.id)
+    now = datetime.datetime.utcnow().timestamp()
+    last_used = data_store["ban_cooldowns"].get(uid, 0)
+    if now - last_used < BAN_COOLDOWN_SECONDS:
+        remaining = int(BAN_COOLDOWN_SECONDS - (now - last_used))
+        mins, secs = divmod(remaining, 60)
+        await ctx.send(f"⏳ You're on cooldown. Try again in {mins}m {secs}s.")
+        return
+
+    try:
+        await member.ban(reason=f"{reason} - by {ctx.author}")
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to ban that user.")
+        return
+
+    data_store["ban_cooldowns"][uid] = now
+    save_data(data_store)
+
+    embed = discord.Embed(
+        title="🔨 Member Banned",
+        color=discord.Color.red(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="User", value=f"{member} ({member.id})", inline=False)
+    embed.add_field(name="Moderator", value=ctx.author.mention, inline=False)
+    embed.add_field(name="Reason", value=reason, inline=False)
+    await ctx.send(embed=embed)
+    await log_to_channel(ctx.guild, MOD_LOG_CHANNEL_ID, embed)
+
+
+@bot.command(name="kick")
+async def kick_cmd(ctx: commands.Context, member: discord.Member = None, *, reason: str = "No reason provided"):
+    if not can_ban(ctx.author):
+        await ctx.send("❌ You don't have permission to use this command.")
+        return
+    if member is None:
+        await ctx.send("⚠️ You need to provide a user. Usage: `+kick @user reason`")
+        return
+    try:
+        await member.kick(reason=f"{reason} - by {ctx.author}")
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to kick that user.")
+        return
+
+    embed = discord.Embed(
+        title="👢 Member Kicked",
+        color=discord.Color.orange(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="User", value=f"{member} ({member.id})", inline=False)
+    embed.add_field(name="Moderator", value=ctx.author.mention, inline=False)
+    embed.add_field(name="Reason", value=reason, inline=False)
+    await ctx.send(embed=embed)
+    await log_to_channel(ctx.guild, MOD_LOG_CHANNEL_ID, embed)
+
+
+@bot.command(name="warn")
+async def warn_cmd(ctx: commands.Context, member: discord.Member = None, *, reason: str = None):
+    if not can_warn(ctx.author):
+        await ctx.send("❌ You don't have permission to use this command.")
+        return
+    if member is None or reason is None:
+        await ctx.send("⚠️ You need to provide a user and reason. Usage: `+warn @user reason`")
+        return
+
+    uid = str(member.id)
+    data_store["warnings"].setdefault(uid, [])
+    warn_id = len(data_store["warnings"][uid]) + 1
+    data_store["warnings"][uid].append(
+        {
+            "id": warn_id,
+            "reason": reason,
+            "moderator": ctx.author.id,
+            "timestamp": datetime.datetime.utcnow().isoformat(),
         }
-        self.role_requirements = {
-            'Trial Middleman': {'hits': 5, 'price': 5},
-            'Middleman': {'hits': 10, 'price': 10, 'discount': 5},
-            'Lead Middleman': {'hits': 20, 'price': 15, 'discount': 7},
-            'Moderator': {'hits': 30, 'price': 25, 'discount': 10},
-            'Coordinator': {'hits': 50, 'price': 25, 'discount': 15},
-            'Overseer': {'price': 40, 'discount': 25},
-            'Head of Management': {'price': 50, 'discount': 30},
-            'Head of Coordination': {'price': 60, 'discount': 35},
-            'Head of Operations': {'price': 75, 'discount': 45},
-            'Head of Dev': {'price': 100, 'discount': 60},
-            'Head of Staff': {'price': 150, 'discount': 75},
-            'President': {'price': 250, 'discount': 100}
-        }
-        self.permission_levels = {
-            'Trial Middleman': 1, 'Middleman': 2, 'Lead Middleman': 3,
-            'Moderator': 4, 'Coordinator': 5, 'Overseer': 6,
-            'Head of Management': 7, 'Head of Coordination': 8,
-            'Head of Operations': 9, 'Head of Dev': 10,
-            'Head of Staff': 11, 'President': 12
-        }
-        self.support_channel = 1528462676446023841
-        self.support_category = 1528491782491345107
-        self.general_support_category = 1528491782491345107
-        self.middleman_category = 1527856283498184876  # Tickets go here
-        self.welcome_channel = 1527829658979012608
-        self.setup_role = 1526271680371232788
-        self.middleman_staff_roles = ['Trial Middleman', 'Middleman', 'Lead Middleman', 'Moderator', 'Coordinator', 'Overseer', 'Head of Management', 'Head of Coordination', 'Head of Operations', 'Head of Staff', 'President']
-        self.support_staff_roles = ['Moderator', 'Coordinator', 'Overseer', 'Head of Management', 'Head of Coordination', 'Head of Operations', 'Head of Staff', 'President']
+    )
+    save_data(data_store)
 
-    def has_permission(self, user, required_roles):
-        if not isinstance(user, discord.Member):
-            return False
-        for role in user.roles:
-            for req_role in required_roles:
-                if req_role in self.role_ids and role.id == self.role_ids[req_role]:
-                    return True
-        return False
+    embed = discord.Embed(
+        title="⚠️ Member Warned",
+        color=discord.Color.gold(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="User", value=f"{member} ({member.id})", inline=False)
+    embed.add_field(name="Moderator", value=ctx.author.mention, inline=False)
+    embed.add_field(name="Reason", value=reason, inline=False)
+    embed.add_field(name="Warning ID", value=str(warn_id), inline=False)
+    await ctx.send(embed=embed)
+    await log_to_channel(ctx.guild, MOD_LOG_CHANNEL_ID, embed)
 
-    def has_setup_role(self, user):
-        if not isinstance(user, discord.Member):
-            return False
-        return any(role.id == self.setup_role for role in user.roles)
+    try:
+        await member.send(f"You have been warned in **{ctx.guild.name}** for: {reason}")
+    except discord.Forbidden:
+        pass
 
-    def has_middleman_permission(self, user):
-        if not isinstance(user, discord.Member):
-            return False
-        return self.has_permission(user, self.middleman_staff_roles)
 
-    def has_support_permission(self, user):
-        if not isinstance(user, discord.Member):
-            return False
-        return self.has_permission(user, self.support_staff_roles)
+@bot.command(name="warnings")
+async def warnings_cmd(ctx: commands.Context, member: discord.Member = None):
+    if not can_warn(ctx.author):
+        await ctx.send("❌ You don't have permission to use this command.")
+        return
+    if member is None:
+        await ctx.send("⚠️ You need to provide a user. Usage: `+warnings @user`")
+        return
 
-    def can_manage_role(self, user, role):
-        if not isinstance(user, discord.Member):
-            return False
-        user_highest = 0
-        role_position = 0
-        for r in user.roles:
-            if r.id in self.role_ids.values():
-                for name, rid in self.role_ids.items():
-                    if rid == r.id and name in self.permission_levels:
-                        if self.permission_levels[name] > user_highest:
-                            user_highest = self.permission_levels[name]
-        for name, rid in self.role_ids.items():
-            if rid == role.id and name in self.permission_levels:
-                role_position = self.permission_levels[name]
-                break
-        return user_highest > role_position
+    warns = data_store["warnings"].get(str(member.id), [])
+    if not warns:
+        await ctx.send(f"✅ {member.mention} has no warnings.")
+        return
 
-    def is_ticket_channel(self, channel):
-        if not channel:
-            return False
-        self.db.cursor.execute("SELECT id FROM tickets WHERE channel_id = ? AND status = 'open'", (channel.id,))
-        return self.db.cursor.fetchone() is not None
+    embed = discord.Embed(title=f"Warnings for {member}", color=discord.Color.gold())
+    for w in warns:
+        mod = ctx.guild.get_member(w["moderator"])
+        embed.add_field(
+            name=f"Warning #{w['id']}",
+            value=f"**Reason:** {w['reason']}\n**Moderator:** {mod.mention if mod else w['moderator']}\n**Date:** {w['timestamp'][:10]}",
+            inline=False,
+        )
+    await ctx.send(embed=embed)
 
-    def get_role_mention(self, role_name):
-        role_id = self.role_ids.get(role_name)
-        if role_id:
-            return f"<@&{role_id}>"
-        return f"@{role_name}"
 
-bot = MiddlemanBot()
+@bot.command(name="clearwarn")
+async def clearwarn_cmd(ctx: commands.Context, member: discord.Member = None):
+    if not can_warn(ctx.author):
+        await ctx.send("❌ You don't have permission to use this command.")
+        return
+    if member is None:
+        await ctx.send("⚠️ You need to provide a user. Usage: `+clearwarn @user`")
+        return
+    data_store["warnings"][str(member.id)] = []
+    save_data(data_store)
+    await ctx.send(f"✅ Cleared all warnings for {member.mention}.")
 
-# ==================== EVENTS ====================
+
+@bot.command(name="delwarn")
+async def delwarn_cmd(ctx: commands.Context, member: discord.Member = None, warn_id: int = None):
+    if not can_warn(ctx.author):
+        await ctx.send("❌ You don't have permission to use this command.")
+        return
+    if member is None or warn_id is None:
+        await ctx.send("⚠️ Usage: `+delwarn @user <warning_id>`")
+        return
+    warns = data_store["warnings"].get(str(member.id), [])
+    new_warns = [w for w in warns if w["id"] != warn_id]
+    if len(new_warns) == len(warns):
+        await ctx.send(f"⚠️ No warning with ID {warn_id} found for {member.mention}.")
+        return
+    data_store["warnings"][str(member.id)] = new_warns
+    save_data(data_store)
+    await ctx.send(f"✅ Deleted warning #{warn_id} for {member.mention}.")
+
+
+# =========================================================
+#  INFO / PERKS / HELP
+# =========================================================
+
+@bot.command(name="info")
+async def info_cmd(ctx: commands.Context):
+    embed = discord.Embed(
+        title="📋 ROLE REQUIREMENTS",
+        description="Levi's Middleman Services",
+        color=EMBED_COLOR,
+    )
+    for role_id, req in ROLE_REQUIREMENTS:
+        embed.add_field(name=ROLE_NAMES[role_id], value=req, inline=False)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="perks")
+async def perks_cmd(ctx: commands.Context):
+    embed = discord.Embed(
+        title="📋 ROLE PERKS & PERMISSIONS",
+        description="Levi's Middleman Services - Staff Role Breakdown",
+        color=EMBED_COLOR,
+    )
+    for role_id, perk in ROLE_PERKS:
+        embed.add_field(name=ROLE_NAMES[role_id], value=perk, inline=False)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="help")
+async def help_cmd(ctx: commands.Context):
+    embed = discord.Embed(title="📖 Command List", color=EMBED_COLOR)
+    embed.add_field(
+        name="Moderation",
+        value=(
+            f"`{PREFIX}ban @user reason` - ban a member (30m cooldown)\n"
+            f"`{PREFIX}kick @user reason` - kick a member\n"
+            f"`{PREFIX}warn @user reason` - warn a member\n"
+            f"`{PREFIX}warnings @user` - view a member's warnings\n"
+            f"`{PREFIX}clearwarn @user` - clear all warnings\n"
+            f"`{PREFIX}delwarn @user id` - delete a specific warning"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Info",
+        value=(
+            f"`{PREFIX}info` - view role requirements\n"
+            f"`{PREFIX}perks` - view role perks & permissions\n"
+            f"`{PREFIX}help` - view this menu"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Tickets (slash commands)",
+        value=(
+            "`/support` - post the support panel\n"
+            "`/add @user` - add a user to the current ticket\n"
+            "`/close` - close the current ticket\n"
+            "`/transfer @user` - transfer ticket claim"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Roles (slash commands)",
+        value="`/managerole add|remove @user role reason` - manage a member's rank",
+        inline=False,
+    )
+    embed.add_field(
+        name="Trading (slash commands)",
+        value=(
+            "`/offer @user` - send a trade offer\n"
+            "`/explain` - learn how to make the best trades\n"
+            "`/about` `/faq` `/tos` `/scamawareness` - server info"
+        ),
+        inline=False,
+    )
+    await ctx.send(embed=embed)
+
+
+# =========================================================
+#  /managerole
+# =========================================================
+
+@bot.tree.command(name="managerole", description="Add or remove a staff role from a user.")
+@app_commands.describe(action="add or remove", user="The user to update", role="The role to add/remove", reason="Reason for this change")
+@app_commands.choices(action=[
+    app_commands.Choice(name="add", value="add"),
+    app_commands.Choice(name="remove", value="remove"),
+])
+async def managerole_cmd(
+    interaction: discord.Interaction,
+    action: app_commands.Choice[str],
+    user: discord.Member,
+    role: discord.Role,
+    reason: str,
+):
+    if not can_manage_roles(interaction.user):
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        return
+
+    if role.id not in ROLE_HIERARCHY:
+        await interaction.response.send_message("⚠️ That isn't a managed staff role.", ephemeral=True)
+        return
+
+    # A staff member can only manage roles below their own rank.
+    actor_level = member_role_level(interaction.user)
+    target_role_level = ROLE_HIERARCHY.index(role.id)
+    if target_role_level >= actor_level and not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "❌ You can only manage roles below your own rank.", ephemeral=True
+        )
+        return
+
+    if action.value == "add":
+        await user.add_roles(role, reason=f"{reason} - by {interaction.user}")
+        verb = "added to"
+    else:
+        await user.remove_roles(role, reason=f"{reason} - by {interaction.user}")
+        verb = "removed from"
+
+    embed = discord.Embed(
+        title="🏷️ Role Updated",
+        description=f"**{role.name}** was {verb} {user.mention}",
+        color=ACCENT_COLOR,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="Staff", value=interaction.user.mention, inline=True)
+    embed.add_field(name="Reason", value=reason, inline=True)
+    await interaction.response.send_message(embed=embed)
+    await log_to_channel(interaction.guild, ROLE_LOG_CHANNEL_ID, embed)
+
+
+# =========================================================
+#  TRADE OFFER FLOW  (/offer, /explain)
+# =========================================================
+
+class OfferView(discord.ui.View):
+    def __init__(self, target: discord.Member):
+        super().__init__(timeout=300)
+        self.target = target
+
+    @discord.ui.button(label="Accept", style=discord.ButtonStyle.green, custom_id="offer:accept")
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message("This offer isn't for you.", ephemeral=True)
+            return
+        role = interaction.guild.get_role(ROLE_GIVEAWAY_PING) if interaction.guild else None
+        if role and isinstance(interaction.user, discord.Member):
+            try:
+                await interaction.user.add_roles(role, reason="Accepted trader offer")
+            except discord.Forbidden:
+                pass
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(
+            content="🎉 Great, you have accepted to become a trader!", view=self
+        )
+
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.red, custom_id="offer:decline")
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message("This offer isn't for you.", ephemeral=True)
+            return
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="You have declined the offer.", view=self)
+
+
+@bot.tree.command(name="offer", description="Send a trade offer to a user.")
+@app_commands.describe(user="The user to offer a trade to")
+async def offer_cmd(interaction: discord.Interaction, user: discord.Member):
+    embed = discord.Embed(
+        title="You have been offered a trade!",
+        description="How will you accept? I will tend for you to accept this trade, to make more, etc.",
+        color=ACCENT_COLOR,
+    )
+    try:
+        await user.send(embed=embed, view=OfferView(user))
+        await interaction.response.send_message(f"✅ Offer sent to {user.mention}.", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            f"⚠️ Couldn't DM {user.mention}, their DMs may be closed.", ephemeral=True
+        )
+
+
+class ExplainStep2View(discord.ui.View):
+    def __init__(self, owner_id: int):
+        super().__init__(timeout=300)
+        self.owner_id = owner_id
+
+    @discord.ui.button(label="Next Step", style=discord.ButtonStyle.blurple)
+    async def next_step(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("This isn't your session.", ephemeral=True)
+            return
+        embed = discord.Embed(
+            title="Step 3",
+            description="All done, good luck!",
+            color=ACCENT_COLOR,
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+
+
+class ExplainStep1View(discord.ui.View):
+    def __init__(self, owner_id: int):
+        super().__init__(timeout=300)
+        self.owner_id = owner_id
+
+    @discord.ui.button(label="Next Step", style=discord.ButtonStyle.blurple)
+    async def next_step(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("This isn't your session.", ephemeral=True)
+            return
+        embed = discord.Embed(
+            title="Step 2",
+            description=(
+                "Once you have a confirmed trade, make sure to tell them to use a "
+                "middleman, to keep the trade safe and secure."
+            ),
+            color=ACCENT_COLOR,
+        )
+        await interaction.response.edit_message(embed=embed, view=ExplainStep2View(self.owner_id))
+
+
+class ExplainYesNoView(discord.ui.View):
+    def __init__(self, owner_id: int):
+        super().__init__(timeout=300)
+        self.owner_id = owner_id
+
+    @discord.ui.button(label="Yes", style=discord.ButtonStyle.green)
+    async def yes(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("This isn't your session.", ephemeral=True)
+            return
+        embed = discord.Embed(
+            title="Step 1",
+            description=(
+                "Great, go to other servers and find trades. Once you have a trade, "
+                "make sure it's confirmed."
+            ),
+            color=ACCENT_COLOR,
+        )
+        await interaction.response.edit_message(embed=embed, view=ExplainStep1View(self.owner_id))
+
+    @discord.ui.button(label="No", style=discord.ButtonStyle.red)
+    async def no(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("This isn't your session.", ephemeral=True)
+            return
+        await interaction.response.edit_message(content="Okay, no worries!", embed=None, view=None)
+
+
+@bot.tree.command(name="explain", description="Learn how to make the best trades.")
+async def explain_cmd(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        "Would you like to learn how to make the best trades?",
+        view=ExplainYesNoView(interaction.user.id),
+        ephemeral=True,
+    )
+
+
+# =========================================================
+#  INFO / FAQ / TOS / SCAM AWARENESS
+# =========================================================
+
+@bot.tree.command(name="about", description="Learn about BloxTrades.")
+async def about_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="ℹ️ About BloxTrades",
+        description=(
+            "BloxTrades is a trusted trading community offering a professional, "
+            "secure middleman service to protect both parties of a trade.\n\n"
+            "Our staff team is trained, ranked, and held to strict standards to "
+            "ensure every trade is handled safely and fairly."
+        ),
+        color=EMBED_COLOR,
+    )
+    embed.set_footer(text="Powered by bloxtrades")
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="faq", description="Frequently asked questions.")
+async def faq_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(title="❓ Frequently Asked Questions", color=EMBED_COLOR)
+    embed.add_field(
+        name="How do I request a middleman?",
+        value="Use the **Request Middleman** button on the ticket panel and fill out the form.",
+        inline=False,
+    )
+    embed.add_field(
+        name="Is the middleman service free?",
+        value="Yes, our middleman service is completely free to use.",
+        inline=False,
+    )
+    embed.add_field(
+        name="How do I become staff?",
+        value="Check `/managerole` requirements with the `+info` command.",
+        inline=False,
+    )
+    embed.add_field(
+        name="What if the other party doesn't cooperate?",
+        value="Let the middleman know immediately in your ticket, and they will handle it accordingly.",
+        inline=False,
+    )
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="tos", description="Terms of Service.")
+async def tos_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="📜 Terms of Service",
+        description=(
+            "1. Both parties must agree to a trade before requesting a middleman.\n"
+            "2. Fake, troll, or wasted tickets will result in punishment.\n"
+            "3. Staff decisions during a trade dispute are final.\n"
+            "4. Any attempt to scam another user will result in an immediate ban.\n"
+            "5. By using this service, you agree to follow all server rules and "
+            "staff instructions during your trade."
+        ),
+        color=EMBED_COLOR,
+    )
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="scamawareness", description="Scam awareness tips.")
+async def scamawareness_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🚨 Scam Awareness",
+        description=(
+            "Protect yourself when trading:\n\n"
+            "• Never trade without a middleman for higher-value deals.\n"
+            "• Never share your password, login link, or 2FA codes with anyone.\n"
+            "• Be cautious of deals that sound too good to be true.\n"
+            "• Always double check who you're trading with before confirming.\n"
+            "• Report any suspicious activity to staff immediately."
+        ),
+        color=discord.Color.red(),
+    )
+    await interaction.response.send_message(embed=embed)
+
+
+# =========================================================
+#  EVENTS
+# =========================================================
 
 @bot.event
 async def on_ready():
-    print(f"✅ Bot is online as {bot.user.name} (ID: {bot.user.id})")
-    print(f"📊 Connected to {len(bot.guilds)} servers:")
-    for guild in bot.guilds:
-        print(f"  - {guild.name} (ID: {guild.id})")
+    bot.add_view(TicketRequestView())
+    bot.add_view(SupportPanelView())
+    bot.add_view(TicketControlView())
     try:
-        await bot.tree.sync()
-        print("✅ Slash commands synced successfully!")
-        cmds = await bot.tree.fetch_commands()
-        print(f"📋 Registered {len(cmds)} slash commands:")
-        for cmd in cmds:
-            print(f"  - /{cmd.name}")
+        if GUILD_ID:
+            guild_obj = discord.Object(id=GUILD_ID)
+            bot.tree.copy_global_to(guild=guild_obj)
+            synced = await bot.tree.sync(guild=guild_obj)
+        else:
+            synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} slash command(s).")
     except Exception as e:
-        print(f"❌ Failed to sync commands: {e}")
-    print("✅ Bot is ready to use!")
+        print(f"Slash sync failed: {e}")
+    print(f"Logged in as {bot.user} ({bot.user.id})")
+
 
 @bot.event
-async def on_member_join(member):
-    role = member.guild.get_role(bot.role_ids['Auto Role Member'])
-    if role:
-        try:
-            await member.add_roles(role)
-        except discord.HTTPException:
-            pass
-    welcome_channel = bot.get_channel(bot.welcome_channel)
-    if welcome_channel:
-        embed = discord.Embed(title="Levi MM Services | New Member Joined", color=discord.Color.blue())
-        embed.add_field(name="User", value=member.mention, inline=True)
-        embed.add_field(name="User ID", value=member.id, inline=True)
-        embed.add_field(name="Account Created", value=member.created_at.strftime("%A, %B %d, %Y %I:%M %p"), inline=False)
-        embed.set_footer(text="Levi MM Services | Invite Tracker")
-        try:
-            await welcome_channel.send(embed=embed)
-        except discord.HTTPException:
-            pass
-
-# ==================== SLASH COMMANDS ====================
-
-@bot.tree.command(name="ping", description="Test if slash commands work")
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("🏓 Pong! Slash commands are working!")
-
-@bot.tree.command(name="setup", description="Post the middleman ticket panel")
-async def setup(interaction: discord.Interaction):
-    if not bot.has_setup_role(interaction.user):
-        await interaction.response.send_message("❌ You need the Setup role to use this.", ephemeral=True)
+async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+    if isinstance(error, commands.CommandNotFound):
         return
-    view = TicketPanelView(bot)
-    embed = discord.Embed(
-        title="🛡️ Levi's Middleman Services",
-        description="**Welcome to our official Middleman Service Centre**\n\n"
-                    "We provide a safe and secure way to exchange your goods with complete peace of mind.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**📋 How It Works:**\n"
-                    "• Click the button below to request a middleman\n"
-                    "• A staff member will be assigned to your trade\n"
-                    "• Both parties confirm the trade details\n"
-                    "• Trade is completed safely and securely\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**⚠️ Important:**\n"
-                    "• Both parties must agree before requesting\n"
-                    "• Fake or troll tickets will result in punishment\n"
-                    "• Keep all communication in the ticket\n\n"
-                    "*Powered by Levi's Middleman Services*",
-        color=discord.Color.blue()
-    )
-    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1338592957753725044/1338592957753725044/levi_logo.png")
-    embed.set_footer(text="Levi's Middleman Services © 2024")
-    await interaction.response.send_message(embed=embed, view=view)
-
-@bot.tree.command(name="support", description="Post the general support ticket panel")
-async def support(interaction: discord.Interaction):
-    if not bot.has_setup_role(interaction.user):
-        await interaction.response.send_message("❌ You need the Setup role to use this.", ephemeral=True)
+    if isinstance(error, commands.MemberNotFound):
+        await ctx.send("⚠️ I couldn't find that member.")
         return
-    view = SupportPanelView(bot)
-    embed = discord.Embed(
-        title="🛠️ Levi's Support Centre",
-        description="**Welcome to our Official Support Centre**\n\n"
-                    "Need help with an account, server, or general issue?\n"
-                    "We're here to assist you.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**📋 Before Opening a Ticket:**\n"
-                    "• Check `/faq` — your question may already be answered\n"
-                    "• Have relevant details ready (screenshots, order info)\n"
-                    "• Only one open support ticket per person\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**🛠️ What We Can Help With:**\n"
-                    "• Account issues\n"
-                    "• Server problems\n"
-                    "• General questions\n"
-                    "• Bug reports\n\n"
-                    "*Powered by Levi's Middleman Services*",
-        color=discord.Color.gold()
-    )
-    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1338592957753725044/1338592957753725044/levi_logo.png")
-    embed.set_footer(text="Levi's Middleman Services © 2024")
-    await interaction.response.send_message(embed=embed, view=view)
-
-@bot.tree.command(name="offer", description="Offer the mercy program to a user")
-@app_commands.describe(user="The user to offer mercy to")
-async def offer_mercy(interaction: discord.Interaction, user: discord.Member):
-    # Only Trial Middleman and above can use this
-    if not bot.has_middleman_permission(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission to use this command!", ephemeral=True)
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("⚠️ You're missing an argument for that command. Use `+help` to see usage.")
         return
-    
-    embed = discord.Embed(
-        title="🤝 Mercy Program Invitation",
-        description=f"You have been invited to join the **Mercy Program**!\n\n"
-                    f"**What is the Mercy Program?**\n"
-                    f"The Mercy Program allows selected users to join our private system and start earning through our internal methods.\n\n"
-                    f"**What do I get?**\n"
-                    f"• Access to our private system\n"
-                    f"• Opportunity to earn\n"
-                    f"• Giveaway Pings role\n\n"
-                    f"**Choose below if you want to join.**",
-        color=discord.Color.purple()
-    )
-    embed.set_footer(text="Levi's Middleman Services | Mercy System")
-    
-    view = MercyView(bot, user.id)
-    await interaction.response.send_message(content=user.mention, embed=embed, view=view)
+    raise error
 
-@bot.tree.command(name="about", description="About Levi's MM Services")
-async def about(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="📖 About Levi's Middleman Services",
-        description="**Your Trusted Trading Partner**\n\n"
-                    "Levi's Middleman Services was established to give traders a reliable, "
-                    "neutral third party for exchanges where trust cannot otherwise be verified.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Our Mission**\n"
-                    "We provide a safe and secure environment for traders to exchange "
-                    "goods without the risk of being scammed.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Why Choose Us?**\n"
-                    "• Professional and experienced staff\n"
-                    "• Fast and reliable service\n"
-                    "• Secure and safe trades\n"
-                    "• 24/7 support availability\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Founded:** 2024\n"
-                    "**Service Model:** Free, staff-run trade escrow\n"
-                    "**Team Structure:** 12 ranked staff tiers",
-        color=discord.Color.blue()
-    )
-    embed.set_footer(text="Levi's Middleman Services © 2024")
-    await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name="faq", description="Frequently Asked Questions")
-async def faq(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="❓ Frequently Asked Questions",
-        description="**Answers to the questions we're asked most often.**\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**How do I request a middleman?**\n"
-                    "Open the middleman panel and click 'Request Middleman'.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Is the middleman service free?**\n"
-                    "Yes! There is no fee to use a middleman for a standard trade.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**How do I become a staff member?**\n"
-                    "New staff members are brought in through the Mercy Program.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**What are the requirements for each rank?**\n"
-                    "Requirements vary by rank. Use `/info` for the full breakdown.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**How long does a trade take?**\n"
-                    "Most tickets are claimed within a few minutes during active hours.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Can I open a ticket for something other than a trade?**\n"
-                    "Yes! Use the support panel for account or server issues.",
-        color=discord.Color.teal()
-    )
-    embed.set_footer(text="Levi's Middleman Services © 2024")
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="tos", description="Terms of Service")
-async def tos(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="📜 Terms of Service",
-        description="**Levi's Middleman Services - Terms of Service**\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**1. Acceptance of Terms**\n"
-                    "By using our service, you agree to these terms and conditions.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**2. Service Liability**\n"
-                    "We are not responsible for scams that occur outside our platform.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**3. Fees and Payments**\n"
-                    "All fees are non-refundable once the service has been provided.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**4. Dispute Resolution**\n"
-                    "All disputes will be handled fairly by management.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**5. User Conduct**\n"
-                    "Users must behave respectfully and follow staff instructions.",
-        color=discord.Color.red()
-    )
-    embed.set_footer(text="Levi's Middleman Services © 2024")
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="scamawareness", description="Learn how to avoid scams")
-async def scamawareness(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🚨 Scam Awareness Guide",
-        description="**Protect Yourself from Scammers**\n\n"
-                    "Scammers rely on urgency, unfamiliarity, and trust to succeed. "
-                    "Read this guide to stay safe.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**⚠️ Impersonation**\n"
-                    "Scammers create accounts with names and avatars nearly identical to real staff. "
-                    "Always verify a staff member's identity through their exact username and ID.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**⚠️ Fake Trust or Middleman Sites**\n"
-                    "Never conduct a trade through a third-party website or bot that is not "
-                    "officially listed by our service.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**⚠️ Pressure and Urgency**\n"
-                    "Scammers rush trades by claiming limited-time offers or that someone "
-                    "else is buying it right now. Legitimate trades don't skip verification.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**⚠️ Requests for Sensitive Information**\n"
-                    "No legitimate staff will ever ask for your password, 2FA codes, "
-                    "payment card details, or remote access to your device.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**✅ Before You Trade**\n"
-                    "• Confirm terms in writing\n"
-                    "• Keep screenshots of all agreements\n"
-                    "• Use the official ticket system\n\n"
-                    "**If You Believe You Are Being Scammed:**\n"
-                    "Stop the trade immediately and open a ticket to report the situation.",
-        color=discord.Color.dark_red()
-    )
-    embed.set_footer(text="Levi's Middleman Services © 2024")
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="howmmworks", description="How the middleman system works")
-async def howmmworks(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🔄 How Middleman Works",
-        description="**Step-by-Step Guide**\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Step 1: Find a Trade**\n"
-                    "Find a trade you want to complete and confirm with the other party.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Step 2: Request a Middleman**\n"
-                    "Click 'Request Middleman' and provide the trade details.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Step 3: Wait for a Staff Member**\n"
-                    "A staff member will claim your ticket and assist you.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Step 4: Confirm the Trade**\n"
-                    "Both parties confirm the trade details with the middleman.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Step 5: Trade Completion**\n"
-                    "The trade is completed and verified by the middleman.",
-        color=discord.Color.green()
-    )
-    embed.set_footer(text="Levi's Middleman Services © 2024")
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="fee", description="View the middleman fee structure")
-async def fee(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="💰 Middleman Fee Structure",
-        description="**Transparent Pricing**\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Standard Fee**\n"
-                    "5% of trade value\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Minimum Fee**\n"
-                    "$5 USD\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**Maximum Fee**\n"
-                    "$50 USD\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**💡 Tip**\n"
-                    "Fees are split 50/50 between the middleman and the program.",
-        color=discord.Color.gold()
-    )
-    embed.set_footer(text="Levi's Middleman Services © 2024")
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="policy", description="View the middleman policy")
-async def policy(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="📋 Middleman Policy",
-        description="**Our Core Policies**\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**1. Safety First**\n"
-                    "Always ensure both parties are legitimate before proceeding.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**2. Confirmation**\n"
-                    "Both parties must confirm the trade before completion.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**3. Screenshots**\n"
-                    "Take screenshots of all trades for verification.\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**4. Disputes**\n"
-                    "Report any disputes to management immediately.",
-        color=discord.Color.blue()
-    )
-    embed.set_footer(text="Levi's Middleman Services © 2024")
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="confirm", description="Confirm a trade between two users")
-@app_commands.describe(user1="First user", user2="Second user")
-async def confirm(interaction: discord.Interaction, user1: discord.Member, user2: discord.Member):
-    if not bot.has_middleman_permission(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission!", ephemeral=True)
-        return
-    hit1 = bot.db.add_hit(user1.id)
-    hit2 = bot.db.add_hit(user2.id)
-    embed = discord.Embed(
-        title="✅ Trade Confirmed",
-        description=f"Trade between {user1.mention} and {user2.mention} has been confirmed!",
-        color=discord.Color.green()
-    )
-    embed.add_field(name="Middleman", value=interaction.user.mention, inline=True)
-    embed.add_field(name="📊 Stats", value=f"{user1.mention}: {hit1} hits\n{user2.mention}: {hit2} hits", inline=False)
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="add", description="Add someone to a ticket")
-@app_commands.describe(user="User to add to the ticket")
-async def add_to_ticket(interaction: discord.Interaction, user: discord.Member):
-    if not bot.is_ticket_channel(interaction.channel):
-        await interaction.response.send_message("❌ This is not a ticket channel!", ephemeral=True)
-        return
-    if not bot.has_middleman_permission(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission!", ephemeral=True)
-        return
-    await interaction.channel.set_permissions(user, read_messages=True, send_messages=True)
-    await interaction.response.send_message(f"✅ Added {user.mention} to the ticket!")
-
-@bot.tree.command(name="transfer", description="Transfer a ticket to another middleman")
-@app_commands.describe(middleman="The middleman to transfer to")
-async def transfer(interaction: discord.Interaction, middleman: discord.Member):
-    if not bot.is_ticket_channel(interaction.channel):
-        await interaction.response.send_message("❌ This is not a ticket channel!", ephemeral=True)
-        return
-    if not bot.has_middleman_permission(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission!", ephemeral=True)
-        return
-    bot.db.cursor.execute("UPDATE tickets SET middleman_id = ? WHERE channel_id = ?", (middleman.id, interaction.channel.id))
-    bot.db.conn.commit()
-    await interaction.response.send_message(f"✅ Ticket transferred to {middleman.mention}")
-
-@bot.tree.command(name="close", description="Close the current ticket")
-async def close_ticket(interaction: discord.Interaction):
-    if not bot.is_ticket_channel(interaction.channel):
-        await interaction.response.send_message("❌ This is not a ticket channel!", ephemeral=True)
-        return
-    if not bot.has_middleman_permission(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission!", ephemeral=True)
-        return
-    bot.db.cursor.execute("UPDATE tickets SET status = 'closed', closed_at = ? WHERE channel_id = ?", (datetime.now(), interaction.channel.id))
-    bot.db.conn.commit()
-    await interaction.response.send_message("✅ Ticket will be closed in 5 seconds...")
-    await asyncio.sleep(5)
-    await interaction.channel.delete()
-
-# ==================== PREFIX COMMANDS ====================
-
-@bot.command(name='warn')
-async def warn_command(ctx, member: discord.Member, *, reason: str = "No reason provided"):
-    if not bot.has_permission(ctx.author, ['Moderator', 'Coordinator', 'Overseer', 'Head of Management', 'Head of Coordination', 'Head of Operations', 'Head of Staff', 'President']):
-        await ctx.send("❌ You don't have permission!")
-        return
-    bot.db.add_warning(member.id, ctx.author.id, reason)
-    warnings = bot.db.get_warnings(member.id)
-    embed = discord.Embed(title="⚠️ User Warned", color=discord.Color.orange(), timestamp=datetime.now())
-    embed.add_field(name="User", value=member.mention, inline=True)
-    embed.add_field(name="Moderator", value=ctx.author.mention, inline=True)
-    embed.add_field(name="Reason", value=reason, inline=False)
-    embed.add_field(name="Total Warnings", value=len(warnings), inline=True)
-    await ctx.send(embed=embed)
-
-@bot.command(name='clearwarn')
-async def clearwarn_command(ctx, member: discord.Member):
-    if not bot.has_permission(ctx.author, ['Moderator', 'Coordinator', 'Overseer', 'Head of Management', 'Head of Coordination', 'Head of Operations', 'Head of Staff', 'President']):
-        await ctx.send("❌ You don't have permission!")
-        return
-    bot.db.clear_warnings(member.id)
-    embed = discord.Embed(title="✅ Warnings Cleared", description=f"All warnings for {member.mention} cleared.", color=discord.Color.green())
-    await ctx.send(embed=embed)
-
-@bot.command(name='delwarn')
-async def delwarn_command(ctx, warning_id: int):
-    if not bot.has_permission(ctx.author, ['Moderator', 'Coordinator', 'Overseer', 'Head of Management', 'Head of Coordination', 'Head of Operations', 'Head of Staff', 'President']):
-        await ctx.send("❌ You don't have permission!")
-        return
-    bot.db.delete_warning(warning_id)
-    await ctx.send(f"✅ Warning {warning_id} deleted!")
-
-@bot.command(name='info')
-async def info_command(ctx):
-    embed = discord.Embed(title="📋 ROLE REQUIREMENTS", description="Levi's Middleman Services", color=discord.Color.blue())
-    requirements = ""
-    role_list = list(bot.role_requirements.keys())
-    for i, role in enumerate(role_list):
-        req = bot.role_requirements[role]
-        role_ping = bot.get_role_mention(role)
-        if 'hits' in req:
-            if 'discount' in req:
-                prev_role_ping = bot.get_role_mention(role_list[i-1]) if i > 0 else ""
-                requirements += f"**{role_ping}**\n   • {req['hits']} hits OR ${req['price']} | ${req['discount']} if already {prev_role_ping}\n\n"
-            else:
-                requirements += f"**{role_ping}**\n   • {req['hits']} hits OR ${req['price']}\n\n"
-        else:
-            if 'discount' in req:
-                prev_role_ping = bot.get_role_mention(role_list[i-1]) if i > 0 else ""
-                requirements += f"**{role_ping}**\n   • ${req['price']} | ${req['discount']} if already {prev_role_ping}\n\n"
-            else:
-                requirements += f"**{role_ping}**\n   • ${req['price']}\n\n"
-    embed.description = requirements
-    await ctx.send(embed=embed)
-
-@bot.command(name='perks')
-async def perks_command(ctx):
-    gp_ping = bot.get_role_mention('Giveaway Pings')
-    tm_ping = bot.get_role
+if __name__ == "__main__":
+    if not TOKEN:
+        raise SystemExit("DISCORD_TOKEN is missing. Set it in your .env / Railway variables.")
+    bot.run(TOKEN)
