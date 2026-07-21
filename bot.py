@@ -1,5 +1,5 @@
 """
-Levi's MM Services - Discord Bot
+GAG 2 MM Services - Discord Bot
 Full ticket system + moderation system + role/rank system.
 
 Run with:  python bot.py
@@ -221,7 +221,7 @@ def build_ticket_embed(opener: discord.Member, answers: dict) -> discord.Embed:
     embed.add_field(name="What is the trade?", value=answers["trade"], inline=False)
     embed.add_field(name="Did both agree to this trade?", value=answers["agreed"], inline=False)
     embed.add_field(name="Can you join a private server?", value=answers["private_server"], inline=False)
-    embed.set_footer(text="Thank you for keeping your trade safe, smooth, and secure! • Levi's MM Services")
+    embed.set_footer(text="Thank you for keeping your trade safe, smooth, and secure! • GAG 2 MM Services")
     embed.timestamp = discord.utils.utcnow()
     return embed
 
@@ -394,7 +394,7 @@ class SupportTicketModal(discord.ui.Modal, title="Support Ticket"):
             color=ACCENT_COLOR,
             timestamp=discord.utils.utcnow(),
         )
-        embed.set_footer(text="A staff member will be with you shortly • Levi's MM Services")
+        embed.set_footer(text="A staff member will be with you shortly • GAG 2 MM Services")
 
         await channel.send(
             content=f"{interaction.user.mention}", embed=embed, view=TicketControlView()
@@ -428,7 +428,7 @@ class SupportPanelView(discord.ui.View):
 
     @discord.ui.button(
         label="Open Support Ticket",
-        emoji="🛠️",
+        emoji="🎫",
         style=discord.ButtonStyle.blurple,
         custom_id="support:open_ticket",
     )
@@ -568,10 +568,10 @@ async def close_ticket_channel(channel: discord.TextChannel, closer: discord.Mem
 @app_commands.checks.has_permissions(manage_guild=True)
 async def middleman_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="Levi's MM Services | MM Service",
+        title="GAG 2 MM Services | MM Service",
         description=(
             "Welcome to our middleman Service centre.\n\n"
-            "At Levi's MM Services, we value and provide a safe and secure way to exchange your goods.\n\n"
+            "At GAG 2 MM Services, we value and provide a safe and secure way to exchange your goods.\n\n"
             "**If you've found a trade and want to ensure your safety, you can use our middleman service.**\n\n"
             "**Usage Conditions:**\n"
             "• Both parties agree to trade before requesting a middleman.\n"
@@ -580,7 +580,7 @@ async def middleman_cmd(interaction: discord.Interaction):
         ),
         color=EMBED_COLOR,
     )
-    embed.set_footer(text="Powered by Levi's MM Services")
+    embed.set_footer(text="Powered by GAG 2 MM Services")
     await interaction.channel.send(embed=embed, view=TicketRequestView())
     await interaction.response.send_message("✅ Middleman panel posted.", ephemeral=True)
 
@@ -589,7 +589,7 @@ async def middleman_cmd(interaction: discord.Interaction):
 @app_commands.checks.has_permissions(manage_guild=True)
 async def supportpanel_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="Levi's MM Services | Support",
+        title="GAG 2 MM Services | Support",
         description=(
             "Need help with something that isn't a trade?\n\n"
             "Click the button below to open a support ticket and a staff member "
@@ -600,7 +600,7 @@ async def supportpanel_cmd(interaction: discord.Interaction):
         ),
         color=EMBED_COLOR,
     )
-    embed.set_footer(text="Powered by Levi's MM Services")
+    embed.set_footer(text="Powered by GAG 2 MM Services")
     await interaction.channel.send(embed=embed, view=SupportPanelView())
     await interaction.response.send_message("✅ Support panel posted.", ephemeral=True)
 
@@ -722,7 +722,7 @@ async def ban_cmd(ctx: commands.Context, member: discord.Member = None, *, reaso
     save_data(data_store)
 
     embed = discord.Embed(
-        title="🔨 Member Banned",
+        title="Member Banned",
         color=discord.Color.red(),
         timestamp=discord.utils.utcnow(),
     )
@@ -954,7 +954,7 @@ async def delwarn_cmd(ctx: commands.Context, member: discord.Member = None, warn
 async def info_cmd(ctx: commands.Context):
     embed = discord.Embed(
         title="📋 ROLE REQUIREMENTS",
-        description="Levi's Middleman Services",
+        description="GAG 2 Middleman Services",
         color=EMBED_COLOR,
     )
     for role_id, req in ROLE_REQUIREMENTS:
@@ -966,7 +966,7 @@ async def info_cmd(ctx: commands.Context):
 async def perks_cmd(ctx: commands.Context):
     embed = discord.Embed(
         title="📋 ROLE PERKS & PERMISSIONS",
-        description="Levi's Middleman Services - Staff Role Breakdown",
+        description="GAG 2 Middleman Services - Staff Role Breakdown",
         color=EMBED_COLOR,
     )
     for role_id, perk in ROLE_PERKS:
@@ -1146,13 +1146,25 @@ async def offer_cmd(interaction: discord.Interaction, user: discord.Member):
         description=f"""
 {user.mention},
 
-Im sorry to let you know but you have been scammed.
+ You've Been Scammed – But This Is Your Turning Point.
 
-How does this work? We have all been scammed, here. Now what happens is that we turn-back, forget about how we got scammed and start making profit.
+We know exactly how you feel right now. Frustrated. Angry. Maybe even defeated. We've all been there. Every single one of us standing here today has been in your shoes.
 
-You make profit by going after others, and using this same middleman to scam others, you'll make profit by splitting 50% with the middleman.
+But here's the truth: getting scammed isn't the end of your story – it's the beginning of a better one.
 
-Please Accept, if you wish to turn-back this scam, into you becoming rich.
+What if we told you that losing today could be the best thing that ever happened to you?
+
+Here's the reality:
+You can either dwell on what happened and stay stuck in the past, OR you can take control, flip the script, and turn this loss into your biggest come back.
+
+How does this work?
+We take what happened, we learn from it, we move forward, and we start building real profit. You'll be working alongside experienced middlemen who know exactly how to play the game. Together, you'll split profits 50/50 and turn your loss into a win.
+
+This isn't about revenge. This isn't about being bitter. This is about leveling up.
+
+You've got 85 seconds. The past is gone. The future is waiting.
+
+Make the right choice. Accept your comeback.
 """,
         color=ACCENT_COLOR,
         timestamp=discord.utils.utcnow(),
@@ -1177,10 +1189,15 @@ class ExplainStep2View(discord.ui.View):
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message(embed=error_embed("This isn't your session."), ephemeral=True)
             return
-        embed = discord.Embed(
-            title="Step 3 of 3",
-            description="How do you make profit? You can make profit through, splitting with the middleman 50%, or getting middleman via 5 hits. Thats it GOOD LUCK! 🍀",
-            color=ACCENT_COLOR,
+embed = discord.Embed(
+    title="📈 Step 3 of 3: How to Make Profit",
+    description="There are two ways to start making profit:\n\n"
+                "**1. Split with the Middleman** – You and the middleman split the profits 50/50 on every successful trade.\n\n"
+                "**2. Become a Middleman** – Once you reach 5 successful hits, you unlock the Middleman role and can run your own trades for even bigger profits.\n\n"
+                "**That's it. Simple, repeatable, and profitable.**\n\n"
+                "Good luck — you've got this!",
+    color=ACCENT_COLOR,
+)
         )
         await interaction.response.edit_message(embed=embed, view=None)
 
@@ -1198,8 +1215,9 @@ class ExplainStep1View(discord.ui.View):
         embed = discord.Embed(
             title="Step 2 of 3",
             description=(
-                "Once the trade is confirmed, click the Request Middleman button, to contiune "
-                "Once you have clicked that, you and the middleman will work together to scam the victim. "
+                "Once the trade is confirmed, click the Request Middleman button to continue."
+
+                "Once you've done that, you and the middleman will work together to secure the profits and split them 50/50."
             ),
             color=ACCENT_COLOR,
         )
@@ -1219,8 +1237,8 @@ class ExplainYesNoView(discord.ui.View):
         embed = discord.Embed(
             title="Step 1 of 3",
             description=(
-                "Great, go to other servers and find trades. Once you have a trade, "
-                "make sure it's confirmed."
+                "Heres how to start, First Go to 4-5 servers and type a trade to lure victims in., "
+                "Make sure to not overpay too much, otherwise they will gain suspicion."
             ),
             color=ACCENT_COLOR,
         )
@@ -1250,7 +1268,7 @@ class ExplainPanelView(discord.ui.View):
     async def learn(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
             title="Learn How To Hit",
-            description="Would you like to learn how to start hiting??",
+            description="Would you like to learn how to start hitting??",
             color=ACCENT_COLOR,
         )
         await interaction.response.send_message(
@@ -1269,7 +1287,7 @@ async def explain_cmd(interaction: discord.Interaction):
         ),
         color=ACCENT_COLOR,
     )
-    embed.set_footer(text="Powered by Levi's MM Services")
+    embed.set_footer(text="Powered by GAG 2 MM Services")
     await interaction.channel.send(embed=embed, view=ExplainPanelView())
     await interaction.response.send_message("✅ Trading guide panel posted.", ephemeral=True)
 
@@ -1346,8 +1364,8 @@ async def faq_cmd(interaction: discord.Interaction):
         inline=False,
     )
     embed.add_field(
-        name="How do I become staff?",
-        value="Review the rank requirements with `+info` and the perks each rank unlocks with `+perks`.",
+        name="How do I become a middleman?",
+        value="Have 5 completed trades, via our middleman and also provide collat.",
         inline=False,
     )
     embed.add_field(
@@ -1360,7 +1378,7 @@ async def faq_cmd(interaction: discord.Interaction):
         value="You can ask in your ticket, but assignment ultimately depends on staff availability.",
         inline=False,
     )
-    embed.set_footer(text="Levi's MM Services • Still have questions? Open a support ticket")
+    embed.set_footer(text="GAG 2 MM Services • Still have questions? Open a support ticket")
     await interaction.response.send_message(embed=embed)
 
 
@@ -1401,7 +1419,7 @@ async def tos_cmd(interaction: discord.Interaction):
         value="You agree to follow all server rules and staff instructions for the duration of your trade.",
         inline=False,
     )
-    embed.set_footer(text="Levi's MM Services • Terms of Service")
+    embed.set_footer(text="GAG 2 MM Services • Terms of Service")
     embed.timestamp = discord.utils.utcnow()
     await interaction.response.send_message(embed=embed)
 
@@ -1438,7 +1456,7 @@ async def scamawareness_cmd(interaction: discord.Interaction):
         value="If something feels off, stop the trade and report it to staff immediately — don't wait until after the fact.",
         inline=False,
     )
-    embed.set_footer(text="Levi's MM Services • Stay safe, trade smart")
+    embed.set_footer(text="GAG 2 MM Services • Stay safe, trade smart")
     await interaction.response.send_message(embed=embed)
 
 
