@@ -1018,8 +1018,7 @@ async def help_cmd(ctx: commands.Context):
     embed.add_field(
         name="Trading (slash commands)",
         value=(
-            "`/offer @user` - send a trade offer (posted in-channel)\n"
-            "`/explain` - post the \"learn how to trade\" panel\n"
+            "`/offer @user` - send a scam offer (posted in-channel)\n"
             "`/about` `/faq` `/tos` `/scamawareness` - server info"
         ),
         inline=False,
