@@ -1195,12 +1195,10 @@ embed = discord.Embed(
                 "**1. Split with the Middleman** – You and the middleman split the profits 50/50 on every successful trade.\n\n"
                 "**2. Become a Middleman** – Once you reach 5 successful hits, you unlock the Middleman role and can run your own trades for even bigger profits.\n\n"
                 "**That's it. Simple, repeatable, and profitable.**\n\n"
-                "Good luck — you've got this!",
-    color=ACCENT_COLOR,
+                "Good luck — you've got this! 🚀",
+    color=ACCENT_COLOR
 )
-        )
-        await interaction.response.edit_message(embed=embed, view=None)
-
+await interaction.response.edit_message(embed=embed, view=None)
 
 class ExplainStep1View(discord.ui.View):
     def __init__(self, owner_id: int):
