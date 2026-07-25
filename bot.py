@@ -1048,6 +1048,30 @@ async def say_cmd(ctx: commands.Context, *, message: str = None):
     await log_command_use(ctx, "✅ Used", f"Channel: {ctx.channel.mention}\nMessage: {message[:200]}")
 
 
+@bot.command(name="embed")
+async def embed_cmd(ctx: commands.Context, *, message: str = None):
+    if not is_setup_staff(ctx.author):
+        await ctx.send("❌ Only setup staff can use this command.")
+        return
+    if message is None or not message.strip():
+        await ctx.send(f"⚠️ You need to provide the embed text. Usage: `{PREFIX}embed <whatever you need to say>`")
+        return
+
+    body = message.strip()
+    if len(body) > 4096:
+        await ctx.send("⚠️ That's too long for a single embed (max 4096 characters).")
+        return
+
+    try:
+        await ctx.message.delete()
+    except (discord.Forbidden, discord.NotFound):
+        pass
+
+    embed = discord.Embed(description=body, color=ACCENT_COLOR, timestamp=discord.utils.utcnow())
+    await ctx.send(embed=embed, allowed_mentions=discord.AllowedMentions(everyone=False, users=True, roles=False))
+    await log_command_use(ctx, "✅ Used", f"Channel: {ctx.channel.mention}\nMessage: {body[:200]}")
+
+
 # =========================================================
 #  INFO / PERKS / HELP
 # =========================================================
@@ -1089,7 +1113,8 @@ async def help_cmd(ctx: commands.Context):
             f"`{PREFIX}warnings @user` - view a member's warnings (Lead Middleman+)\n"
             f"`{PREFIX}clearwarn @user` - clear all warnings (Lead Middleman+)\n"
             f"`{PREFIX}delwarn @user id` - delete a specific warning (Lead Middleman+)\n"
-            f"`{PREFIX}say <message>` - make the bot say something (setup staff only)"
+            f"`{PREFIX}say <message>` - make the bot say something (setup staff only)\n"
+            f"`{PREFIX}embed <message>` - make the bot say something as an embed (setup staff only)"
         ),
         inline=False,
     )
