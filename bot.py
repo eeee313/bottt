@@ -1510,7 +1510,7 @@ class ExplainYesNoView(discord.ui.View):
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message(embed=error_embed("This isn't your session."), ephemeral=True)
             return
-        embed = discord.Embed(description="Okay, no worries! Come back anytime.", color=discord.Color.light_grey())
+        embed = discord.Embed(description="Are you sure, you can earn so much, but you can also stay broke by clicking no, good luck make the right choice..", color=discord.Color.light_grey())
         await interaction.response.edit_message(embed=embed, view=None)
 
 
