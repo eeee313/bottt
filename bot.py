@@ -128,7 +128,7 @@ DATA_FILE = os.path.join(os.path.dirname(__file__), "data.json")
 
 def load_data() -> dict:
     if not os.path.exists(DATA_FILE):
-        return {"warnings": {}, "ban_cooldowns": {}, "ticket_count": 0, "tickets": {}}
+        return {"warnings": {}, "ban_cooldowns": {}, "ticket_count": 0, "tickets": {}, "tags": {}}
     with open(DATA_FILE, "r") as f:
         return json.load(f)
 
@@ -139,6 +139,7 @@ def save_data(data: dict):
 
 
 data_store = load_data()
+data_store.setdefault("tags", {})
 
 # =========================================================
 #  BOT SETUP
@@ -1073,6 +1074,94 @@ async def embed_cmd(ctx: commands.Context, *, message: str = None):
 
 
 # =========================================================
+#  TAGS  (Dyno-style saved responses, Trial Middleman+ only)
+# =========================================================
+
+@bot.group(name="tag", invoke_without_command=True)
+async def tag_cmd(ctx: commands.Context, name: str = None):
+    if not can_claim_tickets(ctx.author):
+        await ctx.send("❌ You don't have permission to use tags.")
+        return
+    if name is None:
+        await ctx.send(
+            f"⚠️ Usage: `{PREFIX}tag <name>` to send a tag, `{PREFIX}tag create <name> <content>` to make one, "
+            f"or `{PREFIX}tag delete <name>` to remove one. Use `{PREFIX}tags` to list them all."
+        )
+        return
+
+    tag = data_store["tags"].get(name.lower())
+    if tag is None:
+        await ctx.send(f"⚠️ No tag called `{name}`. Use `{PREFIX}tags` to see what's available.")
+        return
+
+    await ctx.send(tag["content"], allowed_mentions=discord.AllowedMentions(everyone=False, users=True, roles=False))
+
+
+@tag_cmd.command(name="create")
+async def tag_create(ctx: commands.Context, name: str = None, *, content: str = None):
+    if not can_claim_tickets(ctx.author):
+        await ctx.send("❌ You don't have permission to use tags.")
+        return
+    if name is None or content is None:
+        await ctx.send(f"⚠️ Usage: `{PREFIX}tag create <name> <content>`")
+        return
+
+    key = name.lower()
+    if key in data_store["tags"]:
+        await ctx.send(f"⚠️ A tag called `{name}` already exists. Delete it first with `{PREFIX}tag delete {name}`.")
+        return
+
+    data_store["tags"][key] = {
+        "name": name,
+        "content": content,
+        "created_by": ctx.author.id,
+        "timestamp": datetime.datetime.utcnow().isoformat(),
+    }
+    save_data(data_store)
+    await ctx.send(f"✅ Tag `{name}` created. Use `{PREFIX}tag {name}` to send it.")
+
+
+@tag_cmd.command(name="delete")
+async def tag_delete(ctx: commands.Context, name: str = None):
+    if not can_claim_tickets(ctx.author):
+        await ctx.send("❌ You don't have permission to use tags.")
+        return
+    if name is None:
+        await ctx.send(f"⚠️ Usage: `{PREFIX}tag delete <name>`")
+        return
+
+    key = name.lower()
+    if key not in data_store["tags"]:
+        await ctx.send(f"⚠️ No tag called `{name}`.")
+        return
+
+    del data_store["tags"][key]
+    save_data(data_store)
+    await ctx.send(f"✅ Tag `{name}` deleted.")
+
+
+@bot.command(name="tags")
+async def tags_cmd(ctx: commands.Context):
+    if not can_claim_tickets(ctx.author):
+        await ctx.send("❌ You don't have permission to use tags.")
+        return
+
+    tags = data_store["tags"]
+    if not tags:
+        await ctx.send(f"No tags have been created yet. Use `{PREFIX}tag create <name> <content>` to make one.")
+        return
+
+    names = ", ".join(f"`{t['name']}`" for t in tags.values())
+    embed = discord.Embed(
+        title="📌 Tags",
+        description=names,
+        color=EMBED_COLOR,
+    )
+    embed.set_footer(text=f"Use {PREFIX}tag <name> to send one")
+    await ctx.send(embed=embed)
+
+
+# =========================================================
 #  INFO / PERKS / HELP
 # =========================================================
 
@@ -1114,7 +1203,11 @@ async def help_cmd(ctx: commands.Context):
             f"`{PREFIX}clearwarn @user` - clear all warnings (Lead Middleman+)\n"
             f"`{PREFIX}delwarn @user id` - delete a specific warning (Lead Middleman+)\n"
             f"`{PREFIX}say <message>` - make the bot say something (setup staff only)\n"
-            f"`{PREFIX}embed <message>` - make the bot say something as an embed (setup staff only)"
+            f"`{PREFIX}embed <message>` - make the bot say something as an embed (setup staff only)\n"
+            f"`{PREFIX}tag <name>` - send a saved tag (Trial Middleman+)\n"
+            f"`{PREFIX}tag create <name> <content>` - create a tag (Trial Middleman+)\n"
+            f"`{PREFIX}tag delete <name>` - delete a tag (Trial Middleman+)\n"
+            f"`{PREFIX}tags` - list all tags (Trial Middleman+)"
         ),
         inline=False,
     )
