@@ -1521,8 +1521,8 @@ class ExplainPanelView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="Learn How To Trade",
-        emoji="📚",
+        label="Learn How To Hit",
+        emoji="✔",
         style=discord.ButtonStyle.blurple,
         custom_id="explain:learn",
     )
@@ -1541,7 +1541,7 @@ class ExplainPanelView(discord.ui.View):
 @app_commands.checks.has_permissions(manage_guild=True)
 async def explain_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="📚 Hitting Guide",
+        title="✔ Hitting Guide",
         description=(
             "New to Hitting? Click the button below for a quick walkthrough on how "
             "to make successful hits."
