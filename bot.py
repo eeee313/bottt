@@ -7,6 +7,7 @@ Requires:  DISCORD_TOKEN in your .env / Railway variables.
 """
 
 import os
+import re
 import json
 import asyncio
 import datetime
@@ -176,7 +177,7 @@ def can_claim_tickets(member: discord.Member) -> bool:
 
 
 def can_warn(member: discord.Member) -> bool:
-    return has_min_role(member, ROLE_MM)
+    return has_min_role(member, ROLE_LEAD_MM)
 
 
 def can_moderate(member: discord.Member) -> bool:
@@ -188,8 +189,33 @@ def can_ban(member: discord.Member) -> bool:
     return has_min_role(member, ROLE_OVERSEER)
 
 
-def can_manage_roles(member: discord.Member) -> bool:
-    return has_min_role(member, ROLE_HEAD_MANAGEMENT)
+def can_use_managerole(member: discord.Member) -> bool:
+    return has_min_role(member, ROLE_OVERSEER)
+
+
+def manageable_role_levels(member: discord.Member) -> set:
+    """Which ROLE_HIERARCHY indexes this member is allowed to add/remove via /managerole."""
+    if member.guild_permissions.administrator:
+        return set(range(len(ROLE_HIERARCHY)))
+    actor_level = member_role_level(member)
+    overseer_level = ROLE_HIERARCHY.index(ROLE_OVERSEER)
+    head_mgmt_level = ROLE_HIERARCHY.index(ROLE_HEAD_MANAGEMENT)
+    if actor_level == overseer_level:
+        return {ROLE_HIERARCHY.index(ROLE_TRIAL_MM)}
+    if actor_level == head_mgmt_level:
+        return {
+            ROLE_HIERARCHY.index(ROLE_TRIAL_MM),
+            ROLE_HIERARCHY.index(ROLE_MM),
+            ROLE_HIERARCHY.index(ROLE_LEAD_MM),
+        }
+    if actor_level > head_mgmt_level:
+        return set(range(actor_level))  # everything below own rank
+    return set()
+
+
+def is_setup_staff(member: discord.Member) -> bool:
+    """Same bar as the panel-setup commands (/middleman, /supportpanel, /explain)."""
+    return member.guild_permissions.manage_guild or member.guild_permissions.administrator
 
 
 async def log_to_channel(guild: discord.Guild, channel_id: int, embed: discord.Embed, file: Optional[discord.File] = None):
@@ -205,10 +231,36 @@ async def log_to_channel(guild: discord.Guild, channel_id: int, embed: discord.E
 
 
 # =========================================================
+#  MENTION / USER RESOLUTION HELPER
+#  Used to pull a real Member out of the free-text "other
+#  person" answer on the middleman ticket modal (supports
+#  raw IDs, <@id> and <@!id> mentions).
+# =========================================================
+
+USER_ID_RE = re.compile(r"(\d{15,20})")
+
+
+async def resolve_member_from_text(guild: discord.Guild, text: str) -> Optional[discord.Member]:
+    if not text:
+        return None
+    match = USER_ID_RE.search(text)
+    if not match:
+        return None
+    user_id = int(match.group(1))
+    member = guild.get_member(user_id)
+    if member:
+        return member
+    try:
+        return await guild.fetch_member(user_id)
+    except (discord.NotFound, discord.HTTPException):
+        return None
+
+
+# =========================================================
 #  TICKET SYSTEM
 # =========================================================
 
-def build_ticket_embed(opener: discord.Member, answers: dict) -> discord.Embed:
+def build_ticket_embed(opener: discord.Member, answers: dict, other_member: Optional[discord.Member]) -> discord.Embed:
     embed = discord.Embed(
         title="💎 Middleman Ticket Created",
         description="Your middleman ticket has been successfully created!\nA **middleman** will join shortly to assist with your trade.",
@@ -217,7 +269,8 @@ def build_ticket_embed(opener: discord.Member, answers: dict) -> discord.Embed:
     embed.add_field(name="User", value=opener.mention, inline=True)
     embed.add_field(name="Status", value="🟢 Open", inline=True)
     embed.add_field(name="\u200b", value="\u200b", inline=True)
-    embed.add_field(name="Who is the other person?", value=answers["other_person"], inline=False)
+    other_value = f"{other_member.mention} ({answers['other_person']})" if other_member else answers["other_person"]
+    embed.add_field(name="Who is the other person?", value=other_value, inline=False)
     embed.add_field(name="What is the trade?", value=answers["trade"], inline=False)
     embed.add_field(name="Did both agree to this trade?", value=answers["agreed"], inline=False)
     embed.add_field(name="Can you join a private server?", value=answers["private_server"], inline=False)
@@ -262,6 +315,12 @@ class MMTicketModal(discord.ui.Modal, title="MM Ticket Request"):
             )
             return
 
+        # Try to resolve the mentioned trade partner from their answer so we
+        # can ping them and auto-add them to the ticket.
+        other_member = await resolve_member_from_text(guild, self.other_person.value)
+        if other_member and other_member.id == interaction.user.id:
+            other_member = None  # they typed their own ID/mention by mistake
+
         data_store["ticket_count"] += 1
         ticket_num = data_store["ticket_count"]
         channel_name = f"mm-{interaction.user.name}-{ticket_num}"[:100]
@@ -275,6 +334,10 @@ class MMTicketModal(discord.ui.Modal, title="MM Ticket Request"):
                 view_channel=True, send_messages=True, manage_channels=True
             ),
         }
+        if other_member:
+            overwrites[other_member] = discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True
+            )
         for rid in (ROLE_TRIAL_MM, ROLE_MM, ROLE_LEAD_MM, ROLE_MODERATOR):
             role = guild.get_role(rid)
             if role:
@@ -303,18 +366,33 @@ class MMTicketModal(discord.ui.Modal, title="MM Ticket Request"):
         }
         data_store["tickets"][str(channel.id)] = {
             "opener_id": interaction.user.id,
+            "other_id": other_member.id if other_member else None,
             "claimed_by": None,
             "status": "open",
             "type": "middleman",
         }
         save_data(data_store)
 
-        embed = build_ticket_embed(interaction.user, answers)
+        embed = build_ticket_embed(interaction.user, answers, other_member)
         embed.description = (
             f"{interaction.user.mention}\n\n" + embed.description
         )
+
+        # Ping: ticket opener, the mentioned trade partner (if we could
+        # resolve them), and the Trial Middleman role.
+        ping_parts = [interaction.user.mention]
+        if other_member:
+            ping_parts.append(other_member.mention)
+        trial_role = guild.get_role(ROLE_TRIAL_MM)
+        if trial_role:
+            ping_parts.append(trial_role.mention)
+        ping_content = " ".join(ping_parts)
+
         await channel.send(
-            content=f"{interaction.user.mention}", embed=embed, view=TicketControlView()
+            content=ping_content,
+            embed=embed,
+            view=TicketControlView(),
+            allowed_mentions=discord.AllowedMentions(users=True, roles=True),
         )
 
         await interaction.response.send_message(
@@ -327,6 +405,8 @@ class MMTicketModal(discord.ui.Modal, title="MM Ticket Request"):
             color=discord.Color.green(),
             timestamp=discord.utils.utcnow(),
         )
+        if other_member:
+            log_embed.add_field(name="Trade partner", value=other_member.mention, inline=False)
         await log_to_channel(guild, MOD_LOG_CHANNEL_ID, log_embed)
 
 
@@ -480,7 +560,7 @@ class TicketControlView(discord.ui.View):
                 embed=error_embed("This isn't a tracked ticket."), ephemeral=True
             )
             return
-        if info.get("claimed_by") != interaction.user.id and not can_manage_roles(interaction.user):
+        if info.get("claimed_by") != interaction.user.id and not has_min_role(interaction.user, ROLE_HEAD_MANAGEMENT):
             await interaction.response.send_message(
                 embed=error_embed("Only the staff member who claimed this ticket can unclaim it."),
                 ephemeral=True,
@@ -947,6 +1027,28 @@ async def delwarn_cmd(ctx: commands.Context, member: discord.Member = None, warn
 
 
 # =========================================================
+#  SAY  (staff-only "speak as the bot" command)
+# =========================================================
+
+@bot.command(name="say")
+async def say_cmd(ctx: commands.Context, *, message: str = None):
+    if not is_setup_staff(ctx.author):
+        await ctx.send("❌ Only setup staff can use this command.")
+        return
+    if message is None:
+        await ctx.send(f"⚠️ You need to provide a message. Usage: `{PREFIX}say <message>`")
+        return
+
+    try:
+        await ctx.message.delete()
+    except (discord.Forbidden, discord.NotFound):
+        pass
+
+    await ctx.send(message, allowed_mentions=discord.AllowedMentions(everyone=False, users=True, roles=False))
+    await log_command_use(ctx, "✅ Used", f"Channel: {ctx.channel.mention}\nMessage: {message[:200]}")
+
+
+# =========================================================
 #  INFO / PERKS / HELP
 # =========================================================
 
@@ -983,10 +1085,11 @@ async def help_cmd(ctx: commands.Context):
             f"`{PREFIX}ban @user reason` - ban a member (1h cooldown)\n"
             f"`{PREFIX}unban <user_id> reason` - unban a member (1h cooldown)\n"
             f"`{PREFIX}kick @user reason` - kick a member\n"
-            f"`{PREFIX}warn @user reason` - warn a member\n"
-            f"`{PREFIX}warnings @user` - view a member's warnings\n"
-            f"`{PREFIX}clearwarn @user` - clear all warnings\n"
-            f"`{PREFIX}delwarn @user id` - delete a specific warning"
+            f"`{PREFIX}warn @user reason` - warn a member (Lead Middleman+)\n"
+            f"`{PREFIX}warnings @user` - view a member's warnings (Lead Middleman+)\n"
+            f"`{PREFIX}clearwarn @user` - clear all warnings (Lead Middleman+)\n"
+            f"`{PREFIX}delwarn @user id` - delete a specific warning (Lead Middleman+)\n"
+            f"`{PREFIX}say <message>` - make the bot say something (setup staff only)"
         ),
         inline=False,
     )
@@ -1012,14 +1115,17 @@ async def help_cmd(ctx: commands.Context):
     )
     embed.add_field(
         name="Roles (slash commands)",
-        value="`/managerole add|remove @user role reason` - manage a member's rank",
+        value=(
+            "`/managerole add|remove @user role reason` - manage a member's rank (Overseer+)\n"
+            "`/dm role message` - DM every member with a role (setup staff only)"
+        ),
         inline=False,
     )
     embed.add_field(
         name="Trading (slash commands)",
         value=(
-            "`/offer @user` - send a scam offer (posted in-channel)\n"
-            "`/about` `/faq` `/tos` `/scamawareness` - server info"
+            "`/offer @user` - send a scam offer (Trial Middleman+)\n"
+            "`/about` `/faq` `/tos` `/scamawareness` - server info (setup staff only)"
         ),
         inline=False,
     )
@@ -1043,7 +1149,7 @@ async def managerole_cmd(
     role: discord.Role,
     reason: str,
 ):
-    if not can_manage_roles(interaction.user):
+    if not can_use_managerole(interaction.user):
         await interaction.response.send_message(embed=error_embed("You don't have permission to use this command."), ephemeral=True)
         return
 
@@ -1051,12 +1157,11 @@ async def managerole_cmd(
         await interaction.response.send_message(embed=error_embed("That isn't a managed staff role."), ephemeral=True)
         return
 
-    # A staff member can only manage roles below their own rank.
-    actor_level = member_role_level(interaction.user)
     target_role_level = ROLE_HIERARCHY.index(role.id)
-    if target_role_level >= actor_level and not interaction.user.guild_permissions.administrator:
+    allowed_levels = manageable_role_levels(interaction.user)
+    if target_role_level not in allowed_levels:
         await interaction.response.send_message(
-            embed=error_embed("You can only manage roles below your own rank."), ephemeral=True
+            embed=error_embed("You don't have permission to assign that role."), ephemeral=True
         )
         return
 
@@ -1077,6 +1182,38 @@ async def managerole_cmd(
     embed.add_field(name="Reason", value=reason, inline=True)
     await interaction.response.send_message(embed=embed)
     await log_to_channel(interaction.guild, ROLE_LOG_CHANNEL_ID, embed)
+
+
+@bot.tree.command(name="dm", description="DM every member who has a specific role.")
+@app_commands.describe(role="The role whose members will be DM'd", message="The message to send")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def dm_cmd(interaction: discord.Interaction, role: discord.Role, message: str):
+    await interaction.response.defer(ephemeral=True)
+
+    members = [m for m in role.members if not m.bot]
+    sent = 0
+    failed = 0
+    for member in members:
+        try:
+            await member.send(message)
+            sent += 1
+        except (discord.Forbidden, discord.HTTPException):
+            failed += 1
+        await asyncio.sleep(1)  # stay well under Discord's DM rate limits
+
+    embed = discord.Embed(
+        title="📨 Mass DM Complete",
+        color=ACCENT_COLOR,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="Role", value=role.mention, inline=True)
+    embed.add_field(name="Sent", value=str(sent), inline=True)
+    embed.add_field(name="Failed", value=str(failed), inline=True)
+    embed.add_field(name="Message", value=message[:1000], inline=False)
+    embed.set_footer(text=f"Requested by {interaction.user}")
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+    await log_to_channel(interaction.guild, MOD_LOG_CHANNEL_ID, embed)
 
 
 # =========================================================
@@ -1127,6 +1264,13 @@ class OfferView(discord.ui.View):
 @bot.tree.command(name="offer", description="Send a trade offer to a user.")
 @app_commands.describe(user="The user to offer a trade to")
 async def offer_cmd(interaction: discord.Interaction, user: discord.Member):
+    if not can_claim_tickets(interaction.user):
+        await interaction.response.send_message(
+            embed=error_embed("You don't have permission to use this command."),
+            ephemeral=True
+        )
+        return
+
     if user.bot:
         await interaction.response.send_message(
             embed=error_embed("You can't send a trade offer to a bot."),
@@ -1297,6 +1441,7 @@ async def explain_cmd(interaction: discord.Interaction):
 # =========================================================
 
 @bot.tree.command(name="about", description="Learn about Levi's MM Services.")
+@app_commands.checks.has_permissions(manage_guild=True)
 async def about_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
         title="Levi's MM Services",
@@ -1341,6 +1486,7 @@ async def about_cmd(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="faq", description="Frequently asked questions.")
+@app_commands.checks.has_permissions(manage_guild=True)
 async def faq_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
         title="Frequently Asked Questions",
@@ -1382,6 +1528,7 @@ async def faq_cmd(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="tos", description="Terms of Service.")
+@app_commands.checks.has_permissions(manage_guild=True)
 async def tos_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
         title="Terms of Service",
@@ -1424,6 +1571,7 @@ async def tos_cmd(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="scamawareness", description="Scam awareness tips.")
+@app_commands.checks.has_permissions(manage_guild=True)
 async def scamawareness_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🚨 Scam Awareness",
