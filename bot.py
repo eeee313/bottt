@@ -902,7 +902,129 @@ async def kick_cmd(ctx: commands.Context, member: discord.Member = None, *, reas
     await log_to_channel(ctx.guild, MOD_LOG_CHANNEL_ID, embed)
 
 
-@bot.command(name="warn")
+# ---- Duration parsing for +mute (e.g. "10m", "2h", "1d", "1d12h") ----
+DURATION_RE = re.compile(r"(\d+)\s*(d|h|m|s)", re.IGNORECASE)
+MAX_MUTE_SECONDS = 14 * 24 * 60 * 60  # 14 days, matching Dyno's cap
+
+
+def parse_duration(text: str) -> Optional[datetime.timedelta]:
+    if not text:
+        return None
+    matches = DURATION_RE.findall(text)
+    if not matches:
+        return None
+    total_seconds = 0
+    for value, unit in matches:
+        value = int(value)
+        unit = unit.lower()
+        if unit == "d":
+            total_seconds += value * 86400
+        elif unit == "h":
+            total_seconds += value * 3600
+        elif unit == "m":
+            total_seconds += value * 60
+        elif unit == "s":
+            total_seconds += value
+    if total_seconds <= 0:
+        return None
+    return datetime.timedelta(seconds=total_seconds)
+
+
+def format_duration(delta: datetime.timedelta) -> str:
+    total = int(delta.total_seconds())
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, seconds = divmod(rem, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if seconds and not parts:
+        parts.append(f"{seconds}s")
+    return " ".join(parts) if parts else "0s"
+
+
+@bot.command(name="mute")
+async def mute_cmd(ctx: commands.Context, member: discord.Member = None, duration: str = None, *, reason: str = None):
+    if not can_moderate(ctx.author):
+        await ctx.send("❌ You don't have permission to use this command.")
+        await log_command_use(ctx, "❌ Denied (no permission)")
+        return
+    if member is None or duration is None or reason is None:
+        await ctx.send("⚠️ Usage: `+mute @user <time> reason` — e.g. `+mute @user 1d disrespect`. Max 14d.")
+        await log_command_use(ctx, "⚠️ Bad usage (missing user/time/reason)")
+        return
+
+    delta = parse_duration(duration)
+    if delta is None:
+        await ctx.send("⚠️ Invalid time format. Use things like `10m`, `2h`, `1d`, or `1d12h` (max 14d).")
+        await log_command_use(ctx, "⚠️ Bad usage (invalid duration)", f"Input: {duration}")
+        return
+    if delta.total_seconds() > MAX_MUTE_SECONDS:
+        await ctx.send("⚠️ Max mute duration is 14 days.")
+        await log_command_use(ctx, "⚠️ Bad usage (duration too long)", f"Input: {duration}")
+        return
+
+    try:
+        await member.timeout(delta, reason=f"{reason} - by {ctx.author}")
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to mute that user.")
+        await log_command_use(ctx, "❌ Failed (bot missing permission)", f"Target: {member} ({member.id})")
+        return
+
+    embed = discord.Embed(
+        title="🔇 Member Muted",
+        color=discord.Color.dark_grey(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="User", value=f"{member} ({member.id})", inline=False)
+    embed.add_field(name="Moderator", value=ctx.author.mention, inline=False)
+    embed.add_field(name="Duration", value=format_duration(delta), inline=False)
+    embed.add_field(name="Reason", value=reason, inline=False)
+    await ctx.send(embed=embed)
+    await log_to_channel(ctx.guild, MOD_LOG_CHANNEL_ID, embed)
+
+    try:
+        await member.send(f"You have been muted in **{ctx.guild.name}** for {format_duration(delta)}. Reason: {reason}")
+    except discord.Forbidden:
+        pass
+
+
+@bot.command(name="unmute")
+async def unmute_cmd(ctx: commands.Context, member: discord.Member = None, *, reason: str = "No reason provided"):
+    if not can_moderate(ctx.author):
+        await ctx.send("❌ You don't have permission to use this command.")
+        await log_command_use(ctx, "❌ Denied (no permission)")
+        return
+    if member is None:
+        await ctx.send("⚠️ Usage: `+unmute @user reason`")
+        await log_command_use(ctx, "⚠️ Bad usage (missing user)")
+        return
+    if member.timed_out_until is None:
+        await ctx.send(f"⚠️ {member.mention} isn't currently muted.")
+        await log_command_use(ctx, "⚠️ Failed (user not muted)", f"Target: {member} ({member.id})")
+        return
+
+    try:
+        await member.timeout(None, reason=f"{reason} - by {ctx.author}")
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to unmute that user.")
+        await log_command_use(ctx, "❌ Failed (bot missing permission)", f"Target: {member} ({member.id})")
+        return
+
+    embed = discord.Embed(
+        title="🔊 Member Unmuted",
+        color=discord.Color.green(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="User", value=f"{member} ({member.id})", inline=False)
+    embed.add_field(name="Moderator", value=ctx.author.mention, inline=False)
+    embed.add_field(name="Reason", value=reason, inline=False)
+    await ctx.send(embed=embed)
+    await log_to_channel(ctx.guild, MOD_LOG_CHANNEL_ID, embed)
 async def warn_cmd(ctx: commands.Context, member: discord.Member = None, *, reason: str = None):
     if not can_warn(ctx.author):
         await ctx.send("❌ You don't have permission to use this command.")
@@ -1207,6 +1329,8 @@ async def help_cmd(ctx: commands.Context):
             f"`{PREFIX}ban @user reason` - ban a member (1h cooldown)\n"
             f"`{PREFIX}unban <user_id> reason` - unban a member (1h cooldown)\n"
             f"`{PREFIX}kick @user reason` - kick a member\n"
+            f"`{PREFIX}mute @user <time> reason` - timeout a member (Moderator+, max 14d, e.g. `1d12h`)\n"
+            f"`{PREFIX}unmute @user reason` - remove a member's timeout (Moderator+)\n"
             f"`{PREFIX}warn @user reason` - warn a member (Lead Middleman+)\n"
             f"`{PREFIX}warnings @user` - view a member's warnings (Lead Middleman+)\n"
             f"`{PREFIX}clearwarn @user` - clear all warnings (Lead Middleman+)\n"
