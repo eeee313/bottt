@@ -44,11 +44,12 @@ ROLE_LEAD_MM = 1528463688154218618
 ROLE_MODERATOR = 1528463980329439325
 ROLE_COORDINATOR = 1528465524424573149
 ROLE_OVERSEER = 1528465730176290857
-ROLE_HEAD_MANAGEMENT = 1528465890302230618
-ROLE_HEAD_COORDINATION = 1528466122238591198
-ROLE_HEAD_OPERATIONS = 1528466496890605660
-ROLE_HEAD_DEV = 1528466008170303559
-ROLE_HEAD_STAFF = 1528466750956376094
+ROLE_SERVER_MANAGER = 1528465890302230618
+ROLE_SUPERVISOR = 1528466122238591198
+ROLE_SUPREME = 1528466496890605660
+ROLE_OPERATION_LEAD = 1528466008170303559
+ROLE_CHEIF_LEAD = 1528466750956376094
+ROLE_TEAM_LEAD = 1530753792306581594
 ROLE_PRESIDENT = 1528466975464882290
 
 # Ordered lowest -> highest, used for hierarchy checks + /managerole
@@ -59,11 +60,12 @@ ROLE_HIERARCHY = [
     ROLE_MODERATOR,
     ROLE_COORDINATOR,
     ROLE_OVERSEER,
-    ROLE_HEAD_MANAGEMENT,
-    ROLE_HEAD_COORDINATION,
-    ROLE_HEAD_OPERATIONS,
-    ROLE_HEAD_DEV,
-    ROLE_HEAD_STAFF,
+    ROLE_SERVER_MANAGER,
+    ROLE_SUPERVISOR,
+    ROLE_SUPREME,
+    ROLE_OPERATION_LEAD,
+    ROLE_CHEIF_LEAD,
+    ROLE_TEAM_LEAD,
     ROLE_PRESIDENT,
 ]
 
@@ -75,15 +77,17 @@ ROLE_NAMES = {
     ROLE_MODERATOR: "Moderator",
     ROLE_COORDINATOR: "Coordinator",
     ROLE_OVERSEER: "Overseer",
-    ROLE_HEAD_MANAGEMENT: "Head of Management",
-    ROLE_HEAD_COORDINATION: "Head of Coordination",
-    ROLE_HEAD_OPERATIONS: "Head of Operations",
-    ROLE_HEAD_DEV: "Head of Dev",
-    ROLE_HEAD_STAFF: "Head of Staff",
+    ROLE_SERVER_MANAGER: "Server Manager",
+    ROLE_SUPERVISOR: "Supervisor",
+    ROLE_SUPREME: "Supreme",
+    ROLE_OPERATION_LEAD: "Operation Lead",
+    ROLE_CHEIF_LEAD: "Cheif Lead",
+    ROLE_TEAM_LEAD: "Team Lead",
     ROLE_PRESIDENT: "President",
 }
 
 # Requirement text shown in +info
+# NOTE: no $ amount was given for Team Lead — placeholder below, edit to taste.
 ROLE_REQUIREMENTS = [
     (ROLE_TRIAL_MM, "5 hits OR $5"),
     (ROLE_MM, "10 hits OR $10 | $5 if already Trial Middleman"),
@@ -91,12 +95,13 @@ ROLE_REQUIREMENTS = [
     (ROLE_MODERATOR, "30 hits OR $25 | $10 if already Lead Middleman"),
     (ROLE_COORDINATOR, "50 hits OR $25 | $15 if already Moderator"),
     (ROLE_OVERSEER, "$50 | $35 if already Coordinator"),
-    (ROLE_HEAD_MANAGEMENT, "$75 | $50 if already Overseer"),
-    (ROLE_HEAD_COORDINATION, "$100 | $70 if already Head of Management"),
-    (ROLE_HEAD_OPERATIONS, "$150 | $100 if already Head of Coordination"),
-    (ROLE_HEAD_DEV, "$200 | $150 if already Head of Operations"),
-    (ROLE_HEAD_STAFF, "$300 | $200 if already Head of Dev"),
-    (ROLE_PRESIDENT, "$500 | $350 if already Head of Staff"),
+    (ROLE_SERVER_MANAGER, "$75 | $50 if already Overseer"),
+    (ROLE_SUPERVISOR, "$100 | $70 if already Server Manager"),
+    (ROLE_SUPREME, "$150 | $100 if already Supervisor"),
+    (ROLE_OPERATION_LEAD, "$200 | $150 if already Supreme"),
+    (ROLE_CHEIF_LEAD, "$300 | $200 if already Operation Lead"),
+    (ROLE_TEAM_LEAD, "$400 | $300 if already Cheif Lead"),  # placeholder — confirm the real price
+    (ROLE_PRESIDENT, "$500 | $350 if already Team Lead"),
 ]
 
 # Perms text shown in +perks
@@ -107,13 +112,14 @@ ROLE_PERKS = [
     (ROLE_LEAD_MM, "Claim tickets, handle tickets, use middleman commands, view transcripts, warn members."),
     (ROLE_MODERATOR, "Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members."),
     (ROLE_COORDINATOR, "Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members."),
-    (ROLE_OVERSEER, "Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell Trial Middleman, promote Trial Middleman."),
-    (ROLE_HEAD_MANAGEMENT, "All Overseer perks, sell and promote Overseer and below."),
-    (ROLE_HEAD_COORDINATION, "All Overseer perks, sell and promote Head of Management and below."),
-    (ROLE_HEAD_OPERATIONS, "All Overseer perks, sell and promote Head of Coordination and below."),
-    (ROLE_HEAD_DEV, "All Overseer perks, sell and promote Head of Operations and below."),
-    (ROLE_HEAD_STAFF, "All Overseer perks, sell and promote Head of Development and below."),
-    (ROLE_PRESIDENT, "Admin perms, can do everything below, and sell all roles below."),
+    (ROLE_OVERSEER, "Claim tickets, handle tickets, use middleman commands, view transcripts, warn members, mute members, unmute members, timeout members, ban members, unban members, sell/promote Trial Middleman."),
+    (ROLE_SERVER_MANAGER, "All Overseer perks, sell/promote Trial Middleman."),
+    (ROLE_SUPERVISOR, "All Overseer perks, sell/promote Trial Middleman, Middleman, Lead Middleman."),
+    (ROLE_SUPREME, "All Overseer perks."),
+    (ROLE_OPERATION_LEAD, "All Overseer perks, sell/promote Supreme and below."),
+    (ROLE_CHEIF_LEAD, "All Overseer perks, sell/promote Operation Lead and below."),
+    (ROLE_TEAM_LEAD, "All Overseer perks, sell/promote Cheif Lead and below."),
+    (ROLE_PRESIDENT, "Admin perms, can do everything below, and sell/promote all roles below."),
 ]
 
 EMBED_COLOR = 0x2B2D31
@@ -200,18 +206,21 @@ def manageable_role_levels(member: discord.Member) -> set:
         return set(range(len(ROLE_HIERARCHY)))
     actor_level = member_role_level(member)
     overseer_level = ROLE_HIERARCHY.index(ROLE_OVERSEER)
-    head_mgmt_level = ROLE_HIERARCHY.index(ROLE_HEAD_MANAGEMENT)
-    if actor_level == overseer_level:
+    server_manager_level = ROLE_HIERARCHY.index(ROLE_SERVER_MANAGER)
+    supervisor_level = ROLE_HIERARCHY.index(ROLE_SUPERVISOR)
+    operation_lead_level = ROLE_HIERARCHY.index(ROLE_OPERATION_LEAD)
+
+    if actor_level in (overseer_level, server_manager_level):
         return {ROLE_HIERARCHY.index(ROLE_TRIAL_MM)}
-    if actor_level == head_mgmt_level:
+    if actor_level == supervisor_level:
         return {
             ROLE_HIERARCHY.index(ROLE_TRIAL_MM),
             ROLE_HIERARCHY.index(ROLE_MM),
             ROLE_HIERARCHY.index(ROLE_LEAD_MM),
         }
-    if actor_level > head_mgmt_level:
+    if actor_level >= operation_lead_level:
         return set(range(actor_level))  # everything below own rank
-    return set()
+    return set()  # Supreme and anything below Overseer: no managerole access
 
 
 def is_setup_staff(member: discord.Member) -> bool:
@@ -561,7 +570,7 @@ class TicketControlView(discord.ui.View):
                 embed=error_embed("This isn't a tracked ticket."), ephemeral=True
             )
             return
-        if info.get("claimed_by") != interaction.user.id and not has_min_role(interaction.user, ROLE_HEAD_MANAGEMENT):
+        if info.get("claimed_by") != interaction.user.id and not has_min_role(interaction.user, ROLE_SERVER_MANAGER):
             await interaction.response.send_message(
                 embed=error_embed("Only the staff member who claimed this ticket can unclaim it."),
                 ephemeral=True,
@@ -1510,7 +1519,7 @@ class ExplainYesNoView(discord.ui.View):
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message(embed=error_embed("This isn't your session."), ephemeral=True)
             return
-        embed = discord.Embed(description="Are you sure, you can earn so much, but you can also stay broke by clicking no, good luck make the right choice..", color=discord.Color.light_grey())
+        embed = discord.Embed(description="Okay, no worries! Come back anytime.", color=discord.Color.light_grey())
         await interaction.response.edit_message(embed=embed, view=None)
 
 
@@ -1521,8 +1530,8 @@ class ExplainPanelView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="Learn How To Hit",
-        emoji="✔",
+        label="Learn How To Trade",
+        emoji="📚",
         style=discord.ButtonStyle.blurple,
         custom_id="explain:learn",
     )
@@ -1541,7 +1550,7 @@ class ExplainPanelView(discord.ui.View):
 @app_commands.checks.has_permissions(manage_guild=True)
 async def explain_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="✔ Hitting Guide",
+        title="📚 Hitting Guide",
         description=(
             "New to Hitting? Click the button below for a quick walkthrough on how "
             "to make successful hits."
