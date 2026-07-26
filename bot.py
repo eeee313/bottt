@@ -1761,7 +1761,7 @@ async def faq_cmd(interaction: discord.Interaction):
     )
     embed.add_field(
         name="How do I become a middleman?",
-        value="Have 5 completed trades, via our middleman and also provide collat.",
+        value="Meet our staff requirements and apply — see `+info` for the current rank requirements.",
         inline=False,
     )
     embed.add_field(
