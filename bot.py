@@ -1376,7 +1376,7 @@ async def help_cmd(ctx: commands.Context):
         name="Trading (slash commands)",
         value=(
             "`/offer @user` - send a scam offer (Trial Middleman+)\n"
-            "`/about` `/faq` `/tos` `/scamawareness` - server info (setup staff only)"
+            "`/about` `/faq` `/tos` `/scamawareness` `/marketplacetos` - post info panels (setup staff only to post; anyone can view)"
         ),
         inline=False,
     )
@@ -1688,12 +1688,15 @@ async def explain_cmd(interaction: discord.Interaction):
 
 
 # =========================================================
-#  INFO / FAQ / TOS / SCAM AWARENESS
+#  INFO / FAQ / TOS / SCAM AWARENESS / MARKETPLACE TOS
+#  These are posted as panels: a setup-staff member posts the
+#  panel once, and anyone can click the button to view the
+#  content. The resulting message is a plain bot message, not
+#  tagged with "X used /command", so it doesn't reveal who
+#  clicked.
 # =========================================================
 
-@bot.tree.command(name="about", description="Learn about Levi's MM Services.")
-@app_commands.checks.has_permissions(manage_guild=True)
-async def about_cmd(interaction: discord.Interaction):
+def build_about_embed(guild: Optional[discord.Guild]) -> discord.Embed:
     embed = discord.Embed(
         title="Levi's MM Services",
         description=(
@@ -1729,16 +1732,14 @@ async def about_cmd(interaction: discord.Interaction):
         value="Staff respond to tickets as quickly as possible around the clock.",
         inline=True,
     )
-    if interaction.guild and interaction.guild.icon:
-        embed.set_thumbnail(url=interaction.guild.icon.url)
-    embed.set_footer(text="Levi's MM Services • Use /faq /tos /scamawareness for more info")
+    if guild and guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+    embed.set_footer(text="Levi's MM Services • See our FAQ, ToS, and Scam Awareness panels for more")
     embed.timestamp = discord.utils.utcnow()
-    await interaction.response.send_message(embed=embed)
+    return embed
 
 
-@bot.tree.command(name="faq", description="Frequently asked questions.")
-@app_commands.checks.has_permissions(manage_guild=True)
-async def faq_cmd(interaction: discord.Interaction):
+def build_faq_embed() -> discord.Embed:
     embed = discord.Embed(
         title="Frequently Asked Questions",
         description="Answers to the questions we get asked most.",
@@ -1775,12 +1776,10 @@ async def faq_cmd(interaction: discord.Interaction):
         inline=False,
     )
     embed.set_footer(text="GAG 2 MM Services • Still have questions? Open a support ticket")
-    await interaction.response.send_message(embed=embed)
+    return embed
 
 
-@bot.tree.command(name="tos", description="Terms of Service.")
-@app_commands.checks.has_permissions(manage_guild=True)
-async def tos_cmd(interaction: discord.Interaction):
+def build_tos_embed() -> discord.Embed:
     embed = discord.Embed(
         title="Terms of Service",
         description="By using our middleman service, you agree to the following terms.",
@@ -1818,12 +1817,10 @@ async def tos_cmd(interaction: discord.Interaction):
     )
     embed.set_footer(text="GAG 2 MM Services • Terms of Service")
     embed.timestamp = discord.utils.utcnow()
-    await interaction.response.send_message(embed=embed)
+    return embed
 
 
-@bot.tree.command(name="scamawareness", description="Scam awareness tips.")
-@app_commands.checks.has_permissions(manage_guild=True)
-async def scamawareness_cmd(interaction: discord.Interaction):
+def build_scamawareness_embed() -> discord.Embed:
     embed = discord.Embed(
         title="🚨 Scam Awareness",
         description="Trading always carries risk. Follow these guidelines to keep yourself protected.",
@@ -1855,7 +1852,155 @@ async def scamawareness_cmd(interaction: discord.Interaction):
         inline=False,
     )
     embed.set_footer(text="GAG 2 MM Services • Stay safe, trade smart")
-    await interaction.response.send_message(embed=embed)
+    return embed
+
+
+def build_marketplace_tos_embed() -> discord.Embed:
+    # NOTE: this is a professional starting template — edit the specifics
+    # (fees, prohibited items, etc.) to match your actual marketplace rules.
+    embed = discord.Embed(
+        title="Marketplace Terms of Service",
+        description="These terms govern all buying, selling, and trading activity conducted within this server's marketplace.",
+        color=EMBED_COLOR,
+    )
+    embed.add_field(
+        name="1. Eligibility",
+        value="You must comply with all server rules and Discord's Terms of Service to participate in the marketplace.",
+        inline=False,
+    )
+    embed.add_field(
+        name="2. Accurate Listings",
+        value="All listings must accurately describe the item, service, or currency being offered, including condition and price.",
+        inline=False,
+    )
+    embed.add_field(
+        name="3. Use of a Middleman",
+        value="We strongly recommend using our middleman service for any transaction of meaningful value. Transactions conducted outside of an official ticket are done at your own risk.",
+        inline=False,
+    )
+    embed.add_field(
+        name="4. Prohibited Conduct",
+        value="Scamming, price manipulation, impersonation, and fraudulent listings are strictly prohibited and will result in disciplinary action.",
+        inline=False,
+    )
+    embed.add_field(
+        name="5. Dispute Resolution",
+        value="Disputes must be reported to staff promptly. Staff decisions on marketplace disputes are final.",
+        inline=False,
+    )
+    embed.add_field(
+        name="6. Enforcement",
+        value="Violations of these terms may result in warnings, loss of trading privileges, or a permanent ban, at staff discretion.",
+        inline=False,
+    )
+    embed.set_footer(text="GAG 2 MM Services • Marketplace Terms of Service")
+    embed.timestamp = discord.utils.utcnow()
+    return embed
+
+
+class AboutPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="View About", emoji="ℹ️", style=discord.ButtonStyle.blurple, custom_id="info:about")
+    async def view_about(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(embed=build_about_embed(interaction.guild))
+
+
+class FaqPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="View FAQ", emoji="❓", style=discord.ButtonStyle.blurple, custom_id="info:faq")
+    async def view_faq(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(embed=build_faq_embed())
+
+
+class TosPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="View Terms of Service", emoji="📜", style=discord.ButtonStyle.blurple, custom_id="info:tos")
+    async def view_tos(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(embed=build_tos_embed())
+
+
+class ScamAwarenessPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="View Scam Awareness", emoji="🚨", style=discord.ButtonStyle.red, custom_id="info:scamawareness")
+    async def view_scamawareness(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(embed=build_scamawareness_embed())
+
+
+class MarketplaceTosPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="View Marketplace ToS", emoji="📜", style=discord.ButtonStyle.blurple, custom_id="info:marketplacetos")
+    async def view_marketplacetos(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(embed=build_marketplace_tos_embed())
+
+
+@bot.tree.command(name="about", description="Post the About panel in this channel.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def about_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="About Levi's MM Services",
+        description="Click below to learn about our middleman service.",
+        color=EMBED_COLOR,
+    )
+    await interaction.channel.send(embed=embed, view=AboutPanelView())
+    await interaction.response.send_message("✅ About panel posted.", ephemeral=True)
+
+
+@bot.tree.command(name="faq", description="Post the FAQ panel in this channel.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def faq_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Frequently Asked Questions",
+        description="Click below to view our FAQ.",
+        color=EMBED_COLOR,
+    )
+    await interaction.channel.send(embed=embed, view=FaqPanelView())
+    await interaction.response.send_message("✅ FAQ panel posted.", ephemeral=True)
+
+
+@bot.tree.command(name="tos", description="Post the Terms of Service panel in this channel.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def tos_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Terms of Service",
+        description="Click below to view our Terms of Service.",
+        color=EMBED_COLOR,
+    )
+    await interaction.channel.send(embed=embed, view=TosPanelView())
+    await interaction.response.send_message("✅ Terms of Service panel posted.", ephemeral=True)
+
+
+@bot.tree.command(name="scamawareness", description="Post the Scam Awareness panel in this channel.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def scamawareness_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Scam Awareness",
+        description="Click below to view tips on keeping your trades safe.",
+        color=discord.Color.red(),
+    )
+    await interaction.channel.send(embed=embed, view=ScamAwarenessPanelView())
+    await interaction.response.send_message("✅ Scam Awareness panel posted.", ephemeral=True)
+
+
+@bot.tree.command(name="marketplacetos", description="Post the Marketplace Terms of Service panel in this channel.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def marketplacetos_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Marketplace Terms of Service",
+        description="Click below to view the rules governing marketplace activity in this server.",
+        color=EMBED_COLOR,
+    )
+    await interaction.channel.send(embed=embed, view=MarketplaceTosPanelView())
+    await interaction.response.send_message("✅ Marketplace Terms of Service panel posted.", ephemeral=True)
 
 
 # =========================================================
@@ -1868,6 +2013,11 @@ async def on_ready():
     bot.add_view(SupportPanelView())
     bot.add_view(TicketControlView())
     bot.add_view(ExplainPanelView())
+    bot.add_view(AboutPanelView())
+    bot.add_view(FaqPanelView())
+    bot.add_view(TosPanelView())
+    bot.add_view(ScamAwarenessPanelView())
+    bot.add_view(MarketplaceTosPanelView())
     try:
         if GUILD_ID:
             guild_obj = discord.Object(id=GUILD_ID)
