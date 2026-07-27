@@ -35,6 +35,8 @@ MOD_LOG_CHANNEL_ID = 1528865970699898971           # moderation log
 TRANSCRIPTS_CHANNEL_ID = 1528865962588373154       # ticket transcripts
 TICKET_CATEGORY_ID = 1527856283498184876           # middleman ticket category
 SUPPORT_TICKET_CATEGORY_ID = 1528491782491345107   # /supportpanel ticket category
+WELCOME_CHANNEL_ID = 1528945160904249426           # new member welcome messages
+SUGGESTIONS_CHANNEL_ID = 1528937679402827807       # /suggest posts here
 
 # ---- Roles (lowest -> highest authority) ----
 ROLE_GIVEAWAY_PING = 1528463410562601131
@@ -1376,6 +1378,7 @@ async def help_cmd(ctx: commands.Context):
         name="Trading (slash commands)",
         value=(
             "`/offer @user` - send a scam offer (Trial Middleman+)\n"
+            "`/suggest <suggestion>` - post a suggestion (anyone)\n"
             "`/about` `/faq` `/tos` `/scamawareness` `/marketplacetos` - post info panels (setup staff only to post; anyone can view)"
         ),
         inline=False,
@@ -1465,6 +1468,39 @@ async def dm_cmd(interaction: discord.Interaction, role: discord.Role, message: 
 
     await interaction.followup.send(embed=embed, ephemeral=True)
     await log_to_channel(interaction.guild, MOD_LOG_CHANNEL_ID, embed)
+
+
+@bot.tree.command(name="suggest", description="Submit a suggestion for the server.")
+@app_commands.describe(suggestion="What would you like to suggest?")
+async def suggest_cmd(interaction: discord.Interaction, suggestion: str):
+    channel = interaction.guild.get_channel(SUGGESTIONS_CHANNEL_ID)
+    if channel is None:
+        await interaction.response.send_message(
+            embed=error_embed("Suggestions channel not found. Contact an admin."), ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title="💡 New Suggestion",
+        description=suggestion,
+        color=ACCENT_COLOR,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.set_author(name=str(interaction.user), icon_url=interaction.user.display_avatar.url)
+    embed.set_footer(text=f"Suggested by {interaction.user.id}")
+
+    try:
+        msg = await channel.send(embed=embed)
+        await msg.add_reaction("👍")
+        await msg.add_reaction("👎")
+    except discord.HTTPException:
+        await interaction.response.send_message(
+            embed=error_embed("Couldn't post your suggestion — check my permissions in that channel."),
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.send_message(f"✅ Your suggestion has been posted in {channel.mention}.", ephemeral=True)
 
 
 # =========================================================
@@ -1698,27 +1734,30 @@ async def explain_cmd(interaction: discord.Interaction):
 
 def build_about_embed(guild: Optional[discord.Guild]) -> discord.Embed:
     embed = discord.Embed(
-        title="Levi's MM Services",
+        title="🎮 Levi's MM Services",
         description=(
-            "A dedicated, staff-run middleman service built to keep trades safe, "
-            "transparent, and fair for everyone involved."
+            "**❓ What is Levi's MM Services?**\n"
+            "Levi's MM Services is a dedicated, staff-run middleman community built to make trading "
+            "safe, transparent, and stress-free. Whether you're exchanging items, currency, or "
+            "accounts, our trained staff stand between both sides of the deal so nobody walks away scammed."
         ),
         color=EMBED_COLOR,
+    )
+    embed.add_field(
+        name="🛠️ What We Offer",
+        value=(
+            "🤝 **Verified Middleman Service** — Trained staff hold and confirm both sides of a trade before anything changes hands.\n"
+            "🎫 **Private Ticket System** — Every trade gets its own monitored, staff-only ticket.\n"
+            "🚨 **Scam Prevention** — Reports are actively investigated and bad actors are removed.\n"
+            "🏅 **Earned Staff Ranks** — Every staff member proves themselves through experience — see `+info` and `+perks`."
+        ),
+        inline=False,
     )
     embed.add_field(
         name="🛡️ Our Mission",
         value=(
             "We exist to eliminate scams from trading by placing a trained, "
             "vetted middleman between both parties for every deal."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="👥 Our Staff",
-        value=(
-            "Every staff member earns their rank through proven experience and "
-            "is held to strict conduct standards. Use `+info` to see rank "
-            "requirements and `+perks` for permissions per rank."
         ),
         inline=False,
     )
@@ -1741,37 +1780,40 @@ def build_about_embed(guild: Optional[discord.Guild]) -> discord.Embed:
 
 def build_faq_embed() -> discord.Embed:
     embed = discord.Embed(
-        title="Frequently Asked Questions",
-        description="Answers to the questions we get asked most.",
+        title="❓ Frequently Asked Questions",
+        description=(
+            "**What is this?**\n"
+            "Quick answers to the questions our community asks most about trading and our middleman service."
+        ),
         color=EMBED_COLOR,
     )
     embed.add_field(
-        name="How do I request a middleman?",
+        name="🎫 How do I request a middleman?",
         value="Click **Request Middleman** on the ticket panel and complete the short form. A ticket will be created automatically.",
         inline=False,
     )
     embed.add_field(
-        name="Is the middleman service free?",
+        name="💰 Is the middleman service free?",
         value="Yes — our middleman service is completely free for all users.",
         inline=False,
     )
     embed.add_field(
-        name="How long will I wait for a middleman?",
+        name="⏱️ How long will I wait for a middleman?",
         value="Response times vary with staff availability, but tickets are typically picked up quickly. Please be patient after opening one.",
         inline=False,
     )
     embed.add_field(
-        name="How do I become a middleman?",
+        name="🏅 How do I become a middleman?",
         value="Meet our staff requirements and apply — see `+info` for the current rank requirements.",
         inline=False,
     )
     embed.add_field(
-        name="What happens if the other party doesn't cooperate?",
+        name="⚠️ What happens if the other party doesn't cooperate?",
         value="Notify the middleman handling your ticket immediately — they are trained to handle disputes and non-cooperation.",
         inline=False,
     )
     embed.add_field(
-        name="Can I request a specific middleman?",
+        name="🙋 Can I request a specific middleman?",
         value="You can ask in your ticket, but assignment ultimately depends on staff availability.",
         inline=False,
     )
@@ -1781,37 +1823,41 @@ def build_faq_embed() -> discord.Embed:
 
 def build_tos_embed() -> discord.Embed:
     embed = discord.Embed(
-        title="Terms of Service",
-        description="By using our middleman service, you agree to the following terms.",
+        title="📜 Terms of Service",
+        description=(
+            "**What is this?**\n"
+            "The rules that govern every trade made through our middleman service. By opening a "
+            "ticket, you agree to the terms below."
+        ),
         color=EMBED_COLOR,
     )
     embed.add_field(
-        name="1. Mutual Agreement",
+        name="1️⃣ Mutual Agreement",
         value="Both parties must agree to the trade before a middleman is requested.",
         inline=False,
     )
     embed.add_field(
-        name="2. Accurate Information",
+        name="2️⃣ Accurate Information",
         value="You must clearly and honestly state the trade and its value when opening a ticket.",
         inline=False,
     )
     embed.add_field(
-        name="3. No Fake or Troll Tickets",
+        name="3️⃣ No Fake or Troll Tickets",
         value="Wasting staff time with fake, joke, or troll tickets will result in punishment.",
         inline=False,
     )
     embed.add_field(
-        name="4. Staff Authority",
+        name="4️⃣ Staff Authority",
         value="Staff decisions during a trade dispute are final and must be respected.",
         inline=False,
     )
     embed.add_field(
-        name="5. Zero Tolerance for Scamming",
+        name="5️⃣ Zero Tolerance for Scamming",
         value="Any attempt to scam another user through our service will result in an immediate, permanent ban.",
         inline=False,
     )
     embed.add_field(
-        name="6. Server Rules Apply",
+        name="6️⃣ Server Rules Apply",
         value="You agree to follow all server rules and staff instructions for the duration of your trade.",
         inline=False,
     )
@@ -1823,31 +1869,35 @@ def build_tos_embed() -> discord.Embed:
 def build_scamawareness_embed() -> discord.Embed:
     embed = discord.Embed(
         title="🚨 Scam Awareness",
-        description="Trading always carries risk. Follow these guidelines to keep yourself protected.",
+        description=(
+            "**What is this?**\n"
+            "Trading always carries some risk. These guidelines will help you spot the warning signs "
+            "and keep yourself protected."
+        ),
         color=discord.Color.red(),
     )
     embed.add_field(
-        name="Always Use a Middleman",
+        name="🤝 Always Use a Middleman",
         value="For any trade of meaningful value, use our free middleman service rather than trading directly.",
         inline=False,
     )
     embed.add_field(
-        name="Never Share Sensitive Info",
+        name="🔒 Never Share Sensitive Info",
         value="Never give out your password, login links, authenticator codes, or 2FA codes to anyone — including staff.",
         inline=False,
     )
     embed.add_field(
-        name="Too Good To Be True?",
+        name="🎯 Too Good To Be True?",
         value="Be suspicious of offers that seem unusually generous or urgent — that pressure is a common scam tactic.",
         inline=False,
     )
     embed.add_field(
-        name="Verify Who You're Trading With",
+        name="🔍 Verify Who You're Trading With",
         value="Double-check usernames, IDs, and profiles before confirming any trade, even with someone who seems familiar.",
         inline=False,
     )
     embed.add_field(
-        name="Report Suspicious Activity",
+        name="📢 Report Suspicious Activity",
         value="If something feels off, stop the trade and report it to staff immediately — don't wait until after the fact.",
         inline=False,
     )
@@ -1859,37 +1909,41 @@ def build_marketplace_tos_embed() -> discord.Embed:
     # NOTE: this is a professional starting template — edit the specifics
     # (fees, prohibited items, etc.) to match your actual marketplace rules.
     embed = discord.Embed(
-        title="Marketplace Terms of Service",
-        description="These terms govern all buying, selling, and trading activity conducted within this server's marketplace.",
+        title="🛒 Marketplace Terms of Service",
+        description=(
+            "**What is this?**\n"
+            "These terms govern all buying, selling, and trading activity conducted within this "
+            "server's marketplace."
+        ),
         color=EMBED_COLOR,
     )
     embed.add_field(
-        name="1. Eligibility",
+        name="1️⃣ Eligibility",
         value="You must comply with all server rules and Discord's Terms of Service to participate in the marketplace.",
         inline=False,
     )
     embed.add_field(
-        name="2. Accurate Listings",
+        name="2️⃣ Accurate Listings",
         value="All listings must accurately describe the item, service, or currency being offered, including condition and price.",
         inline=False,
     )
     embed.add_field(
-        name="3. Use of a Middleman",
+        name="3️⃣ Use of a Middleman",
         value="We strongly recommend using our middleman service for any transaction of meaningful value. Transactions conducted outside of an official ticket are done at your own risk.",
         inline=False,
     )
     embed.add_field(
-        name="4. Prohibited Conduct",
+        name="4️⃣ Prohibited Conduct",
         value="Scamming, price manipulation, impersonation, and fraudulent listings are strictly prohibited and will result in disciplinary action.",
         inline=False,
     )
     embed.add_field(
-        name="5. Dispute Resolution",
+        name="5️⃣ Dispute Resolution",
         value="Disputes must be reported to staff promptly. Staff decisions on marketplace disputes are final.",
         inline=False,
     )
     embed.add_field(
-        name="6. Enforcement",
+        name="6️⃣ Enforcement",
         value="Violations of these terms may result in warnings, loss of trading privileges, or a permanent ban, at staff discretion.",
         inline=False,
     )
@@ -2029,6 +2083,32 @@ async def on_ready():
     except Exception as e:
         print(f"Slash sync failed: {e}")
     print(f"Logged in as {bot.user} ({bot.user.id})")
+
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    channel = member.guild.get_channel(WELCOME_CHANNEL_ID)
+    if channel is None:
+        return
+
+    embed = discord.Embed(
+        title=f"👋 Welcome to {member.guild.name}!",
+        description=(
+            f"{member.mention}, glad to have you here!\n\n"
+            "Take a look around, and if you ever need a safe trade, open a ticket through our "
+            "middleman service — just click **Request Middleman** on the panel."
+        ),
+        color=ACCENT_COLOR,
+        timestamp=discord.utils.utcnow(),
+    )
+    if member.display_avatar:
+        embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text=f"Member #{member.guild.member_count} • Levi's MM Services")
+
+    try:
+        await channel.send(content=member.mention, embed=embed)
+    except discord.HTTPException:
+        pass
 
 
 @bot.tree.error
