@@ -26,7 +26,7 @@ load_dotenv()
 # =========================================================
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-PREFIX = os.getenv("PREFIX", "+")
+PREFIX = os.getenv("PREFIX", "$")
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))  # optional, speeds up slash sync
 
 # ---- Channels ----
@@ -53,6 +53,15 @@ ROLE_OPERATION_LEAD = 1528466008170303559
 ROLE_CHEIF_LEAD = 1528466750956376094
 ROLE_TEAM_LEAD = 1530753792306581594
 ROLE_PRESIDENT = 1528466975464882290
+
+# Extra roles (not part of the staff hierarchy) that +temp also strips.
+# NOTE: no names were given for these — edit TEMP_EXTRA_ROLE_NAMES below if you want them labeled.
+TEMP_EXTRA_ROLE_IDS = [
+    1530293782413705298,
+    1530293661756035284,
+    1530293571691872457,
+    1530293497549291643,
+]
 
 # Ordered lowest -> highest, used for hierarchy checks + /managerole
 ROLE_HIERARCHY = [
@@ -136,7 +145,7 @@ DATA_FILE = os.path.join(os.path.dirname(__file__), "data.json")
 
 def load_data() -> dict:
     if not os.path.exists(DATA_FILE):
-        return {"warnings": {}, "ban_cooldowns": {}, "ticket_count": 0, "tickets": {}, "tags": {}}
+        return {"warnings": {}, "ban_cooldowns": {}, "ticket_count": 0, "tickets": {}, "tags": {}, "temp_stripped": {}}
     with open(DATA_FILE, "r") as f:
         return json.load(f)
 
@@ -148,6 +157,7 @@ def save_data(data: dict):
 
 data_store = load_data()
 data_store.setdefault("tags", {})
+data_store.setdefault("temp_stripped", {})
 
 # =========================================================
 #  BOT SETUP
@@ -1295,6 +1305,214 @@ async def tags_cmd(ctx: commands.Context):
 
 
 # =========================================================
+#  FEE  (Trial Middleman+)
+# =========================================================
+
+@bot.command(name="fee")
+async def fee_cmd(ctx: commands.Context):
+    if not can_claim_tickets(ctx.author):
+        await ctx.send("❌ You don't have permission to use this command.")
+        return
+
+    embed = discord.Embed(
+        title="💰 Middleman Fee",
+        description=(
+            "To keep our middleman service running and our staff properly compensated for their "
+            "time, every completed trade is subject to a small service fee."
+        ),
+        color=ACCENT_COLOR,
+    )
+    embed.add_field(
+        name="📊 Fee Rate",
+        value="**15%** of the total trade value.",
+        inline=False,
+    )
+    embed.add_field(
+        name="🧾 Who Pays It?",
+        value="The fee is split fairly between both parties unless otherwise agreed upon in the ticket.",
+        inline=False,
+    )
+    embed.add_field(
+        name="✅ Why We Charge It",
+        value="It keeps our staff motivated, our service free of scams, and our community running smoothly for everyone.",
+        inline=False,
+    )
+    embed.set_footer(text="Levi's MM Services • Trade safe, trade smart")
+    embed.timestamp = discord.utils.utcnow()
+    await ctx.send(embed=embed)
+
+
+# =========================================================
+#  TEMP  (strip staff roles, run again to restore — Overseer+)
+# =========================================================
+
+@bot.command(name="temp")
+async def temp_cmd(ctx: commands.Context, member: discord.Member = None):
+    if not can_use_managerole(ctx.author):
+        await ctx.send("❌ You don't have permission to use this command.")
+        return
+    if member is None:
+        await ctx.send(f"⚠️ Usage: `{PREFIX}temp @user`")
+        return
+
+    uid = str(member.id)
+
+    # If this member already has a stripped-role snapshot, restore it.
+    if uid in data_store["temp_stripped"]:
+        role_ids = data_store["temp_stripped"].pop(uid)
+        save_data(data_store)
+        roles_to_add = [r for rid in role_ids if (r := ctx.guild.get_role(rid)) is not None]
+        if roles_to_add:
+            try:
+                await member.add_roles(*roles_to_add, reason=f"Temp restore - by {ctx.author}")
+            except discord.Forbidden:
+                await ctx.send("❌ I don't have permission to restore those roles.")
+                return
+        embed = discord.Embed(
+            title="↩️ Roles Restored",
+            description=f"Restored {len(roles_to_add)} role(s) to {member.mention}.",
+            color=discord.Color.green(),
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="Staff", value=ctx.author.mention, inline=False)
+        await ctx.send(embed=embed)
+        await log_to_channel(ctx.guild, ROLE_LOG_CHANNEL_ID, embed)
+        return
+
+    # Otherwise, strip and remember what was removed (Member/Mercy roles are
+    # never touched since they're not part of ROLE_HIERARCHY or the extras).
+    roles_to_remove = [
+        role for rid in (ROLE_HIERARCHY + TEMP_EXTRA_ROLE_IDS)
+        if (role := ctx.guild.get_role(rid)) is not None and role in member.roles
+    ]
+    if not roles_to_remove:
+        await ctx.send(f"⚠️ {member.mention} doesn't have any of the roles this command manages.")
+        return
+
+    try:
+        await member.remove_roles(*roles_to_remove, reason=f"Temp strip - by {ctx.author}")
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to remove those roles.")
+        return
+
+    data_store["temp_stripped"][uid] = [role.id for role in roles_to_remove]
+    save_data(data_store)
+
+    embed = discord.Embed(
+        title="🧹 Roles Stripped",
+        description=f"Removed {len(roles_to_remove)} role(s) from {member.mention}. Run `{PREFIX}temp {member.mention}` again to restore them.",
+        color=discord.Color.orange(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="Staff", value=ctx.author.mention, inline=False)
+    embed.add_field(name="Removed", value=", ".join(r.mention for r in roles_to_remove)[:1024], inline=False)
+    await ctx.send(embed=embed)
+    await log_to_channel(ctx.guild, ROLE_LOG_CHANNEL_ID, embed)
+
+
+# =========================================================
+#  FILL  (backfill every rank below the one you hold)
+# =========================================================
+
+@bot.command(name="fill")
+async def fill_cmd(ctx: commands.Context, member: discord.Member = None):
+    target = member or ctx.author
+    if target.id != ctx.author.id and not can_use_managerole(ctx.author):
+        await ctx.send("❌ You don't have permission to fill roles for someone else.")
+        return
+
+    level = member_role_level(target)
+    if level <= 0:
+        await ctx.send(f"⚠️ {target.mention} doesn't hold a rank with anything below it to fill.")
+        return
+
+    roles_to_add = [
+        role for rid in ROLE_HIERARCHY[:level]
+        if (role := ctx.guild.get_role(rid)) is not None and role not in target.roles
+    ]
+    if not roles_to_add:
+        await ctx.send(f"✅ {target.mention} already holds every rank below their current one.")
+        return
+
+    try:
+        await target.add_roles(*roles_to_add, reason=f"Rank fill - by {ctx.author}")
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to add those roles.")
+        return
+
+    embed = discord.Embed(
+        title="📶 Ranks Filled",
+        description=f"Added {len(roles_to_add)} role(s) to {target.mention} to match their current rank.",
+        color=discord.Color.green(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="Staff", value=ctx.author.mention, inline=False)
+    embed.add_field(name="Added", value=", ".join(r.mention for r in roles_to_add)[:1024], inline=False)
+    await ctx.send(embed=embed)
+    await log_to_channel(ctx.guild, ROLE_LOG_CHANNEL_ID, embed)
+
+
+# =========================================================
+#  CONFIRM  (both parties click to confirm a trade)
+# =========================================================
+
+def build_confirm_embed(user_a: discord.Member, user_b: discord.Member, confirmed: set) -> discord.Embed:
+    embed = discord.Embed(
+        title="🤝 Trade Confirmation",
+        description=f"{user_a.mention} and {user_b.mention}, please both click below to confirm you agree to this trade.",
+        color=ACCENT_COLOR if len(confirmed) < 2 else discord.Color.green(),
+    )
+    a_status = "✅ Confirmed" if user_a.id in confirmed else "⏳ Waiting"
+    b_status = "✅ Confirmed" if user_b.id in confirmed else "⏳ Waiting"
+    embed.add_field(name=str(user_a), value=a_status, inline=True)
+    embed.add_field(name=str(user_b), value=b_status, inline=True)
+    if len(confirmed) == 2:
+        embed.add_field(name="Status", value="🎉 Both parties have confirmed this trade.", inline=False)
+    embed.timestamp = discord.utils.utcnow()
+    return embed
+
+
+class TradeConfirmView(discord.ui.View):
+    def __init__(self, user_a: discord.Member, user_b: discord.Member):
+        super().__init__(timeout=3600)
+        self.user_a = user_a
+        self.user_b = user_b
+        self.confirmed = set()
+
+    @discord.ui.button(label="Confirm Trade", emoji="✅", style=discord.ButtonStyle.green, custom_id="trade:confirm")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id not in (self.user_a.id, self.user_b.id):
+            await interaction.response.send_message(embed=error_embed("This confirmation isn't for you."), ephemeral=True)
+            return
+        if interaction.user.id in self.confirmed:
+            await interaction.response.send_message(embed=error_embed("You've already confirmed."), ephemeral=True)
+            return
+
+        self.confirmed.add(interaction.user.id)
+        if len(self.confirmed) == 2:
+            button.disabled = True
+            button.label = "Trade Confirmed"
+        embed = build_confirm_embed(self.user_a, self.user_b, self.confirmed)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
+@bot.command(name="confirm")
+async def confirm_cmd(ctx: commands.Context, user_a: discord.Member = None, user_b: discord.Member = None):
+    if not can_claim_tickets(ctx.author):
+        await ctx.send("❌ You don't have permission to use this command.")
+        return
+    if user_a is None or user_b is None:
+        await ctx.send(f"⚠️ Usage: `{PREFIX}confirm @user1 @user2`")
+        return
+    if user_a.id == user_b.id:
+        await ctx.send("⚠️ You need two different users to confirm a trade.")
+        return
+
+    embed = build_confirm_embed(user_a, user_b, set())
+    await ctx.send(embed=embed, view=TradeConfirmView(user_a, user_b))
+
+
+# =========================================================
 #  INFO / PERKS / HELP
 # =========================================================
 
@@ -1342,7 +1560,9 @@ async def help_cmd(ctx: commands.Context):
             f"`{PREFIX}tag <name>` - send a saved tag (Trial Middleman+)\n"
             f"`{PREFIX}tag create <name> <content>` - create a tag (Trial Middleman+)\n"
             f"`{PREFIX}tag delete <name>` - delete a tag (Trial Middleman+)\n"
-            f"`{PREFIX}tags` - list all tags (Trial Middleman+)"
+            f"`{PREFIX}tags` - list all tags (Trial Middleman+)\n"
+            f"`{PREFIX}fee` - post the middleman fee info (Trial Middleman+)\n"
+            f"`{PREFIX}confirm @user1 @user2` - post a trade confirmation both parties must click (Trial Middleman+)"
         ),
         inline=False,
     )
@@ -1370,7 +1590,10 @@ async def help_cmd(ctx: commands.Context):
         name="Roles (slash commands)",
         value=(
             "`/managerole add|remove @user role reason` - manage a member's rank (Overseer+)\n"
-            "`/dm role message` - DM every member with a role (setup staff only)"
+            "`/dm role message` - DM every member with a role (setup staff only)\n"
+            f"`{PREFIX}temp @user` - strip all staff roles, run again on the same user to restore them (Overseer+)\n"
+            f"`{PREFIX}fill [@user]` - backfill every rank below your (or their) current rank\n"
+            f"`{PREFIX}guide` - post the middleman command guide (setup staff only)"
         ),
         inline=False,
     )
@@ -1383,6 +1606,49 @@ async def help_cmd(ctx: commands.Context):
         ),
         inline=False,
     )
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="guide")
+async def guide_cmd(ctx: commands.Context):
+    if not is_setup_staff(ctx.author):
+        await ctx.send("❌ Only setup staff can use this command.")
+        return
+
+    embed = discord.Embed(
+        title="📖 Middleman Command Guide",
+        description="A quick reference of every command relevant to running a trade.",
+        color=EMBED_COLOR,
+    )
+    embed.add_field(
+        name="🎫 Tickets",
+        value=(
+            "`/middleman` - post the middleman request panel\n"
+            "`/add @user` - add a user to the current ticket\n"
+            "`/close` - close the current ticket\n"
+            "`/transfer @user` - transfer ticket claim"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🤝 Running a Trade",
+        value=(
+            f"`{PREFIX}fee` - show the middleman fee\n"
+            f"`{PREFIX}confirm @user1 @user2` - both parties click to confirm the trade\n"
+            f"`{PREFIX}tag <name>` - send a saved response\n"
+            f"`{PREFIX}tags` - list all saved tags"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="👥 Staff Rank Tools",
+        value=(
+            f"`{PREFIX}temp @user` - strip staff roles, run again to restore\n"
+            f"`{PREFIX}fill [@user]` - backfill every rank below the current one"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Levi's MM Services • mm-guide")
     await ctx.send(embed=embed)
 
 
