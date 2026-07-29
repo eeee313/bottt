@@ -175,6 +175,7 @@ COMMAND_PREFIX_MAP = {
     "ban": MOD_PREFIX, "unban": MOD_PREFIX, "kick": MOD_PREFIX,
     "mute": MOD_PREFIX, "unmute": MOD_PREFIX,
     "warn": MOD_PREFIX, "warnings": MOD_PREFIX, "clearwarn": MOD_PREFIX, "delwarn": MOD_PREFIX,
+    "tag": MOD_PREFIX, "tag create": MOD_PREFIX, "tag delete": MOD_PREFIX, "tags": MOD_PREFIX,
     "fee": UTILITY_PREFIX, "confirm": UTILITY_PREFIX, "temp": UTILITY_PREFIX, "fill": UTILITY_PREFIX,
     "say": UTILITY_PREFIX, "embed": UTILITY_PREFIX,
 }
@@ -1242,73 +1243,78 @@ async def embed_cmd(ctx: commands.Context, *, message: str = None):
 #  TAGS  (Dyno-style saved responses, Trial Middleman+ only)
 # =========================================================
 
-tag_group = app_commands.Group(name="tag", description="Manage and send saved tags.")
-
-
-@tag_group.command(name="send", description="Send a saved tag.")
-@app_commands.describe(name="The tag to send")
-async def tag_send(interaction: discord.Interaction, name: str):
-    if not can_claim_tickets(interaction.user):
-        await interaction.response.send_message(embed=error_embed("You don't have permission to use tags."), ephemeral=True)
+@bot.group(name="tag", invoke_without_command=True)
+async def tag_cmd(ctx: commands.Context, name: str = None):
+    if not can_claim_tickets(ctx.author):
+        await ctx.send("❌ You don't have permission to use tags.")
         return
-    tag = data_store["tags"].get(name.lower())
-    if tag is None:
-        await interaction.response.send_message(embed=error_embed(f"No tag called `{name}`. Use `/tags` to see what's available."), ephemeral=True)
-        return
-    await interaction.response.send_message(
-        tag["content"], allowed_mentions=discord.AllowedMentions(everyone=False, users=True, roles=False)
-    )
-
-
-@tag_group.command(name="create", description="Create a new tag.")
-@app_commands.describe(name="The tag's name", content="What the tag should say")
-async def tag_create(interaction: discord.Interaction, name: str, content: str):
-    if not can_claim_tickets(interaction.user):
-        await interaction.response.send_message(embed=error_embed("You don't have permission to use tags."), ephemeral=True)
-        return
-    key = name.lower()
-    if key in data_store["tags"]:
-        await interaction.response.send_message(
-            embed=error_embed(f"A tag called `{name}` already exists. Delete it first with `/tag delete`."), ephemeral=True
+    if name is None:
+        await ctx.send(
+            f"⚠️ Usage: `{MOD_PREFIX}tag <name>` to send a tag, `{MOD_PREFIX}tag create <name> <content>` to make one, "
+            f"or `{MOD_PREFIX}tag delete <name>` to remove one. Use `{MOD_PREFIX}tags` to list them all."
         )
         return
+
+    tag = data_store["tags"].get(name.lower())
+    if tag is None:
+        await ctx.send(f"⚠️ No tag called `{name}`. Use `{MOD_PREFIX}tags` to see what's available.")
+        return
+
+    await ctx.send(tag["content"], allowed_mentions=discord.AllowedMentions(everyone=False, users=True, roles=False))
+
+
+@tag_cmd.command(name="create")
+async def tag_create(ctx: commands.Context, name: str = None, *, content: str = None):
+    if not can_claim_tickets(ctx.author):
+        await ctx.send("❌ You don't have permission to use tags.")
+        return
+    if name is None or content is None:
+        await ctx.send(f"⚠️ Usage: `{MOD_PREFIX}tag create <name> <content>`")
+        return
+
+    key = name.lower()
+    if key in data_store["tags"]:
+        await ctx.send(f"⚠️ A tag called `{name}` already exists. Delete it first with `{MOD_PREFIX}tag delete {name}`.")
+        return
+
     data_store["tags"][key] = {
         "name": name,
         "content": content,
-        "created_by": interaction.user.id,
+        "created_by": ctx.author.id,
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }
     save_data(data_store)
-    await interaction.response.send_message(f"✅ Tag `{name}` created. Use `/tag send` to send it.", ephemeral=True)
+    await ctx.send(f"✅ Tag `{name}` created. Use `{MOD_PREFIX}tag {name}` to send it.")
 
 
-@tag_group.command(name="delete", description="Delete a tag.")
-@app_commands.describe(name="The tag to delete")
-async def tag_delete(interaction: discord.Interaction, name: str):
-    if not can_claim_tickets(interaction.user):
-        await interaction.response.send_message(embed=error_embed("You don't have permission to use tags."), ephemeral=True)
+@tag_cmd.command(name="delete")
+async def tag_delete(ctx: commands.Context, name: str = None):
+    if not can_claim_tickets(ctx.author):
+        await ctx.send("❌ You don't have permission to use tags.")
         return
+    if name is None:
+        await ctx.send(f"⚠️ Usage: `{MOD_PREFIX}tag delete <name>`")
+        return
+
     key = name.lower()
     if key not in data_store["tags"]:
-        await interaction.response.send_message(embed=error_embed(f"No tag called `{name}`."), ephemeral=True)
+        await ctx.send(f"⚠️ No tag called `{name}`.")
         return
+
     del data_store["tags"][key]
     save_data(data_store)
-    await interaction.response.send_message(f"✅ Tag `{name}` deleted.", ephemeral=True)
+    await ctx.send(f"✅ Tag `{name}` deleted.")
 
 
-bot.tree.add_command(tag_group)
-
-
-@bot.tree.command(name="tags", description="List all saved tags.")
-async def tags_cmd(interaction: discord.Interaction):
-    if not can_claim_tickets(interaction.user):
-        await interaction.response.send_message(embed=error_embed("You don't have permission to use tags."), ephemeral=True)
+@bot.command(name="tags")
+async def tags_cmd(ctx: commands.Context):
+    if not can_claim_tickets(ctx.author):
+        await ctx.send("❌ You don't have permission to use tags.")
         return
 
     tags = data_store["tags"]
     if not tags:
-        await interaction.response.send_message("No tags have been created yet. Use `/tag create` to make one.", ephemeral=True)
+        await ctx.send(f"No tags have been created yet. Use `{MOD_PREFIX}tag create <name> <content>` to make one.")
         return
 
     names = ", ".join(f"`{t['name']}`" for t in tags.values())
@@ -1317,8 +1323,8 @@ async def tags_cmd(interaction: discord.Interaction):
         description=names,
         color=EMBED_COLOR,
     )
-    embed.set_footer(text="Use /tag send to send one")
-    await interaction.response.send_message(embed=embed)
+    embed.set_footer(text=f"Use {MOD_PREFIX}tag <name> to send one")
+    await ctx.send(embed=embed)
 
 
 # =========================================================
@@ -1620,12 +1626,12 @@ async def help_cmd(interaction: discord.Interaction):
         inline=False,
     )
     embed.add_field(
-        name="Tags (slash commands)",
+        name=f"Tags (prefix `{MOD_PREFIX}`)",
         value=(
-            "`/tag send <name>` - send a saved tag (Trial Middleman+)\n"
-            "`/tag create <name> <content>` - create a tag (Trial Middleman+)\n"
-            "`/tag delete <name>` - delete a tag (Trial Middleman+)\n"
-            "`/tags` - list all tags (Trial Middleman+)"
+            f"`{MOD_PREFIX}tag <name>` - send a saved tag (Trial Middleman+)\n"
+            f"`{MOD_PREFIX}tag create <name> <content>` - create a tag (Trial Middleman+)\n"
+            f"`{MOD_PREFIX}tag delete <name>` - delete a tag (Trial Middleman+)\n"
+            f"`{MOD_PREFIX}tags` - list all tags (Trial Middleman+)"
         ),
         inline=False,
     )
@@ -1683,8 +1689,8 @@ async def guide_cmd(interaction: discord.Interaction):
         value=(
             f"`{UTILITY_PREFIX}fee` - show the middleman fee\n"
             f"`{UTILITY_PREFIX}confirm @user1 @user2` - both parties click to confirm the trade\n"
-            "`/tag send <name>` - send a saved response\n"
-            "`/tags` - list all saved tags"
+            f"`{MOD_PREFIX}tag <name>` - send a saved response\n"
+            f"`{MOD_PREFIX}tags` - list all saved tags"
         ),
         inline=False,
     )
