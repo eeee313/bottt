@@ -26,7 +26,8 @@ load_dotenv()
 # =========================================================
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-PREFIX = os.getenv("PREFIX", "$")
+MOD_PREFIX = "+"     # ban, unban, kick, mute, unmute, warn, warnings, clearwarn, delwarn
+UTILITY_PREFIX = "$"  # fee, confirm, temp, fill, say, embed
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))  # optional, speeds up slash sync
 
 # ---- Channels ----
@@ -97,7 +98,7 @@ ROLE_NAMES = {
     ROLE_PRESIDENT: "President",
 }
 
-# Requirement text shown in +info
+# Requirement text shown in /info
 # NOTE: no $ amount was given for Team Lead — placeholder below, edit to taste.
 ROLE_REQUIREMENTS = [
     (ROLE_TRIAL_MM, "5 hits OR $5"),
@@ -115,7 +116,7 @@ ROLE_REQUIREMENTS = [
     (ROLE_PRESIDENT, "$500 | $350 if already Team Lead"),
 ]
 
-# Perms text shown in +perks
+# Perms text shown in /perks
 ROLE_PERKS = [
     (ROLE_GIVEAWAY_PING, "Get this role after accepting the Mercy Program, hitters only."),
     (ROLE_TRIAL_MM, "Claim tickets, handle tickets, use middleman commands, view transcripts."),
@@ -167,7 +168,27 @@ intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
+bot = commands.Bot(command_prefix=[MOD_PREFIX, UTILITY_PREFIX], intents=intents, help_command=None)
+
+# Which prefix each prefix-command is allowed to be invoked with.
+COMMAND_PREFIX_MAP = {
+    "ban": MOD_PREFIX, "unban": MOD_PREFIX, "kick": MOD_PREFIX,
+    "mute": MOD_PREFIX, "unmute": MOD_PREFIX,
+    "warn": MOD_PREFIX, "warnings": MOD_PREFIX, "clearwarn": MOD_PREFIX, "delwarn": MOD_PREFIX,
+    "fee": UTILITY_PREFIX, "confirm": UTILITY_PREFIX, "temp": UTILITY_PREFIX, "fill": UTILITY_PREFIX,
+    "say": UTILITY_PREFIX, "embed": UTILITY_PREFIX,
+}
+
+
+@bot.check
+async def enforce_command_prefix(ctx: commands.Context) -> bool:
+    """Rejects a command silently if it was invoked with the wrong one of the two prefixes."""
+    if ctx.command is None:
+        return True
+    required = COMMAND_PREFIX_MAP.get(ctx.command.qualified_name)
+    if required is None:
+        return True
+    return ctx.prefix == required
 
 
 # =========================================================
@@ -781,7 +802,7 @@ BAN_COOLDOWN_SECONDS = 60 * 60  # 1 hour
 async def log_command_use(ctx: commands.Context, outcome: str, detail: str = ""):
     """Logs every +command attempt (success, denial, bad usage) to the mod log."""
     embed = discord.Embed(
-        title=f"🧾 Command Used: +{ctx.command.name}",
+        title=f"🧾 Command Used: {ctx.prefix}{ctx.command.name}",
         color=discord.Color.blue(),
         timestamp=discord.utils.utcnow(),
     )
@@ -1037,6 +1058,7 @@ async def unmute_cmd(ctx: commands.Context, member: discord.Member = None, *, re
     embed.add_field(name="Reason", value=reason, inline=False)
     await ctx.send(embed=embed)
     await log_to_channel(ctx.guild, MOD_LOG_CHANNEL_ID, embed)
+@bot.command(name="warn")
 async def warn_cmd(ctx: commands.Context, member: discord.Member = None, *, reason: str = None):
     if not can_warn(ctx.author):
         await ctx.send("❌ You don't have permission to use this command.")
@@ -1180,7 +1202,7 @@ async def say_cmd(ctx: commands.Context, *, message: str = None):
         await ctx.send("❌ Only setup staff can use this command.")
         return
     if message is None:
-        await ctx.send(f"⚠️ You need to provide a message. Usage: `{PREFIX}say <message>`")
+        await ctx.send(f"⚠️ You need to provide a message. Usage: `{UTILITY_PREFIX}say <message>`")
         return
 
     try:
@@ -1198,7 +1220,7 @@ async def embed_cmd(ctx: commands.Context, *, message: str = None):
         await ctx.send("❌ Only setup staff can use this command.")
         return
     if message is None or not message.strip():
-        await ctx.send(f"⚠️ You need to provide the embed text. Usage: `{PREFIX}embed <whatever you need to say>`")
+        await ctx.send(f"⚠️ You need to provide the embed text. Usage: `{UTILITY_PREFIX}embed <whatever you need to say>`")
         return
 
     body = message.strip()
@@ -1220,78 +1242,73 @@ async def embed_cmd(ctx: commands.Context, *, message: str = None):
 #  TAGS  (Dyno-style saved responses, Trial Middleman+ only)
 # =========================================================
 
-@bot.group(name="tag", invoke_without_command=True)
-async def tag_cmd(ctx: commands.Context, name: str = None):
-    if not can_claim_tickets(ctx.author):
-        await ctx.send("❌ You don't have permission to use tags.")
-        return
-    if name is None:
-        await ctx.send(
-            f"⚠️ Usage: `{PREFIX}tag <name>` to send a tag, `{PREFIX}tag create <name> <content>` to make one, "
-            f"or `{PREFIX}tag delete <name>` to remove one. Use `{PREFIX}tags` to list them all."
-        )
-        return
+tag_group = app_commands.Group(name="tag", description="Manage and send saved tags.")
 
+
+@tag_group.command(name="send", description="Send a saved tag.")
+@app_commands.describe(name="The tag to send")
+async def tag_send(interaction: discord.Interaction, name: str):
+    if not can_claim_tickets(interaction.user):
+        await interaction.response.send_message(embed=error_embed("You don't have permission to use tags."), ephemeral=True)
+        return
     tag = data_store["tags"].get(name.lower())
     if tag is None:
-        await ctx.send(f"⚠️ No tag called `{name}`. Use `{PREFIX}tags` to see what's available.")
+        await interaction.response.send_message(embed=error_embed(f"No tag called `{name}`. Use `/tags` to see what's available."), ephemeral=True)
         return
+    await interaction.response.send_message(
+        tag["content"], allowed_mentions=discord.AllowedMentions(everyone=False, users=True, roles=False)
+    )
 
-    await ctx.send(tag["content"], allowed_mentions=discord.AllowedMentions(everyone=False, users=True, roles=False))
 
-
-@tag_cmd.command(name="create")
-async def tag_create(ctx: commands.Context, name: str = None, *, content: str = None):
-    if not can_claim_tickets(ctx.author):
-        await ctx.send("❌ You don't have permission to use tags.")
+@tag_group.command(name="create", description="Create a new tag.")
+@app_commands.describe(name="The tag's name", content="What the tag should say")
+async def tag_create(interaction: discord.Interaction, name: str, content: str):
+    if not can_claim_tickets(interaction.user):
+        await interaction.response.send_message(embed=error_embed("You don't have permission to use tags."), ephemeral=True)
         return
-    if name is None or content is None:
-        await ctx.send(f"⚠️ Usage: `{PREFIX}tag create <name> <content>`")
-        return
-
     key = name.lower()
     if key in data_store["tags"]:
-        await ctx.send(f"⚠️ A tag called `{name}` already exists. Delete it first with `{PREFIX}tag delete {name}`.")
+        await interaction.response.send_message(
+            embed=error_embed(f"A tag called `{name}` already exists. Delete it first with `/tag delete`."), ephemeral=True
+        )
         return
-
     data_store["tags"][key] = {
         "name": name,
         "content": content,
-        "created_by": ctx.author.id,
+        "created_by": interaction.user.id,
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }
     save_data(data_store)
-    await ctx.send(f"✅ Tag `{name}` created. Use `{PREFIX}tag {name}` to send it.")
+    await interaction.response.send_message(f"✅ Tag `{name}` created. Use `/tag send` to send it.", ephemeral=True)
 
 
-@tag_cmd.command(name="delete")
-async def tag_delete(ctx: commands.Context, name: str = None):
-    if not can_claim_tickets(ctx.author):
-        await ctx.send("❌ You don't have permission to use tags.")
+@tag_group.command(name="delete", description="Delete a tag.")
+@app_commands.describe(name="The tag to delete")
+async def tag_delete(interaction: discord.Interaction, name: str):
+    if not can_claim_tickets(interaction.user):
+        await interaction.response.send_message(embed=error_embed("You don't have permission to use tags."), ephemeral=True)
         return
-    if name is None:
-        await ctx.send(f"⚠️ Usage: `{PREFIX}tag delete <name>`")
-        return
-
     key = name.lower()
     if key not in data_store["tags"]:
-        await ctx.send(f"⚠️ No tag called `{name}`.")
+        await interaction.response.send_message(embed=error_embed(f"No tag called `{name}`."), ephemeral=True)
         return
-
     del data_store["tags"][key]
     save_data(data_store)
-    await ctx.send(f"✅ Tag `{name}` deleted.")
+    await interaction.response.send_message(f"✅ Tag `{name}` deleted.", ephemeral=True)
 
 
-@bot.command(name="tags")
-async def tags_cmd(ctx: commands.Context):
-    if not can_claim_tickets(ctx.author):
-        await ctx.send("❌ You don't have permission to use tags.")
+bot.tree.add_command(tag_group)
+
+
+@bot.tree.command(name="tags", description="List all saved tags.")
+async def tags_cmd(interaction: discord.Interaction):
+    if not can_claim_tickets(interaction.user):
+        await interaction.response.send_message(embed=error_embed("You don't have permission to use tags."), ephemeral=True)
         return
 
     tags = data_store["tags"]
     if not tags:
-        await ctx.send(f"No tags have been created yet. Use `{PREFIX}tag create <name> <content>` to make one.")
+        await interaction.response.send_message("No tags have been created yet. Use `/tag create` to make one.", ephemeral=True)
         return
 
     names = ", ".join(f"`{t['name']}`" for t in tags.values())
@@ -1300,8 +1317,8 @@ async def tags_cmd(ctx: commands.Context):
         description=names,
         color=EMBED_COLOR,
     )
-    embed.set_footer(text=f"Use {PREFIX}tag <name> to send one")
-    await ctx.send(embed=embed)
+    embed.set_footer(text="Use /tag send to send one")
+    await interaction.response.send_message(embed=embed)
 
 
 # =========================================================
@@ -1352,7 +1369,7 @@ async def temp_cmd(ctx: commands.Context, member: discord.Member = None):
         await ctx.send("❌ You don't have permission to use this command.")
         return
     if member is None:
-        await ctx.send(f"⚠️ Usage: `{PREFIX}temp @user`")
+        await ctx.send(f"⚠️ Usage: `{UTILITY_PREFIX}temp @user`")
         return
 
     uid = str(member.id)
@@ -1400,7 +1417,7 @@ async def temp_cmd(ctx: commands.Context, member: discord.Member = None):
 
     embed = discord.Embed(
         title="🧹 Roles Stripped",
-        description=f"Removed {len(roles_to_remove)} role(s) from {member.mention}. Run `{PREFIX}temp {member.mention}` again to restore them.",
+        description=f"Removed {len(roles_to_remove)} role(s) from {member.mention}. Run `{UTILITY_PREFIX}temp {member.mention}` again to restore them.",
         color=discord.Color.orange(),
         timestamp=discord.utils.utcnow(),
     )
@@ -1457,17 +1474,34 @@ async def fill_cmd(ctx: commands.Context, member: discord.Member = None):
 # =========================================================
 
 def build_confirm_embed(user_a: discord.Member, user_b: discord.Member, confirmed: set) -> discord.Embed:
+    both_done = len(confirmed) == 2
     embed = discord.Embed(
         title="🤝 Trade Confirmation",
-        description=f"{user_a.mention} and {user_b.mention}, please both click below to confirm you agree to this trade.",
-        color=ACCENT_COLOR if len(confirmed) < 2 else discord.Color.green(),
+        description=(
+            "Both parties must click **Confirm Trade** below to lock in the terms of this deal.\n"
+            "This is your final check before the middleman proceeds — make sure everything discussed is accurate."
+        ),
+        color=discord.Color.green() if both_done else ACCENT_COLOR,
     )
-    a_status = "✅ Confirmed" if user_a.id in confirmed else "⏳ Waiting"
-    b_status = "✅ Confirmed" if user_b.id in confirmed else "⏳ Waiting"
-    embed.add_field(name=str(user_a), value=a_status, inline=True)
-    embed.add_field(name=str(user_b), value=b_status, inline=True)
-    if len(confirmed) == 2:
-        embed.add_field(name="Status", value="🎉 Both parties have confirmed this trade.", inline=False)
+
+    def status_line(member: discord.Member) -> str:
+        return "✅ **Confirmed**" if member.id in confirmed else "⏳ *Waiting to confirm*"
+
+    embed.add_field(name=f"👤 {user_a.display_name}", value=status_line(user_a), inline=True)
+    embed.add_field(name=f"👤 {user_b.display_name}", value=status_line(user_b), inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
+
+    progress = "🟩" * len(confirmed) + "⬜" * (2 - len(confirmed))
+    embed.add_field(name="Progress", value=f"{progress}  ({len(confirmed)}/2 confirmed)", inline=False)
+
+    if both_done:
+        embed.add_field(
+            name="🎉 Trade Confirmed",
+            value="Both parties have agreed. The middleman can now proceed with the trade.",
+            inline=False,
+        )
+    embed.set_thumbnail(url=user_a.display_avatar.url)
+    embed.set_footer(text="Levi's MM Services • Trade Confirmation")
     embed.timestamp = discord.utils.utcnow()
     return embed
 
@@ -1492,8 +1526,13 @@ class TradeConfirmView(discord.ui.View):
         if len(self.confirmed) == 2:
             button.disabled = True
             button.label = "Trade Confirmed"
+            button.emoji = "🎉"
         embed = build_confirm_embed(self.user_a, self.user_b, self.confirmed)
         await interaction.response.edit_message(embed=embed, view=self)
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
 
 
 @bot.command(name="confirm")
@@ -1502,22 +1541,22 @@ async def confirm_cmd(ctx: commands.Context, user_a: discord.Member = None, user
         await ctx.send("❌ You don't have permission to use this command.")
         return
     if user_a is None or user_b is None:
-        await ctx.send(f"⚠️ Usage: `{PREFIX}confirm @user1 @user2`")
+        await ctx.send(f"⚠️ Usage: `{UTILITY_PREFIX}confirm @user1 @user2`")
         return
     if user_a.id == user_b.id:
         await ctx.send("⚠️ You need two different users to confirm a trade.")
         return
 
     embed = build_confirm_embed(user_a, user_b, set())
-    await ctx.send(embed=embed, view=TradeConfirmView(user_a, user_b))
+    await ctx.send(content=f"{user_a.mention} {user_b.mention}", embed=embed, view=TradeConfirmView(user_a, user_b))
 
 
 # =========================================================
 #  INFO / PERKS / HELP
 # =========================================================
 
-@bot.command(name="info")
-async def info_cmd(ctx: commands.Context):
+@bot.tree.command(name="info", description="View role requirements.")
+async def info_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📋 ROLE REQUIREMENTS",
         description="GAG 2 Middleman Services",
@@ -1525,11 +1564,11 @@ async def info_cmd(ctx: commands.Context):
     )
     for role_id, req in ROLE_REQUIREMENTS:
         embed.add_field(name=ROLE_NAMES[role_id], value=req, inline=False)
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
-@bot.command(name="perks")
-async def perks_cmd(ctx: commands.Context):
+@bot.tree.command(name="perks", description="View role perks & permissions.")
+async def perks_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📋 ROLE PERKS & PERMISSIONS",
         description="GAG 2 Middleman Services - Staff Role Breakdown",
@@ -1537,41 +1576,56 @@ async def perks_cmd(ctx: commands.Context):
     )
     for role_id, perk in ROLE_PERKS:
         embed.add_field(name=ROLE_NAMES[role_id], value=perk, inline=False)
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
-@bot.command(name="help")
-async def help_cmd(ctx: commands.Context):
+@bot.tree.command(name="help", description="View the full command list.")
+async def help_cmd(interaction: discord.Interaction):
     embed = discord.Embed(title="📖 Command List", color=EMBED_COLOR)
     embed.add_field(
-        name="Moderation",
+        name=f"Moderation (prefix `{MOD_PREFIX}`)",
         value=(
-            f"`{PREFIX}ban @user reason` - ban a member (1h cooldown)\n"
-            f"`{PREFIX}unban <user_id> reason` - unban a member (1h cooldown)\n"
-            f"`{PREFIX}kick @user reason` - kick a member\n"
-            f"`{PREFIX}mute @user <time> reason` - timeout a member (Moderator+, max 14d, e.g. `1d12h`)\n"
-            f"`{PREFIX}unmute @user reason` - remove a member's timeout (Moderator+)\n"
-            f"`{PREFIX}warn @user reason` - warn a member (Lead Middleman+)\n"
-            f"`{PREFIX}warnings @user` - view a member's warnings (Lead Middleman+)\n"
-            f"`{PREFIX}clearwarn @user` - clear all warnings (Lead Middleman+)\n"
-            f"`{PREFIX}delwarn @user id` - delete a specific warning (Lead Middleman+)\n"
-            f"`{PREFIX}say <message>` - make the bot say something (setup staff only)\n"
-            f"`{PREFIX}embed <message>` - make the bot say something as an embed (setup staff only)\n"
-            f"`{PREFIX}tag <name>` - send a saved tag (Trial Middleman+)\n"
-            f"`{PREFIX}tag create <name> <content>` - create a tag (Trial Middleman+)\n"
-            f"`{PREFIX}tag delete <name>` - delete a tag (Trial Middleman+)\n"
-            f"`{PREFIX}tags` - list all tags (Trial Middleman+)\n"
-            f"`{PREFIX}fee` - post the middleman fee info (Trial Middleman+)\n"
-            f"`{PREFIX}confirm @user1 @user2` - post a trade confirmation both parties must click (Trial Middleman+)"
+            f"`{MOD_PREFIX}ban @user reason` - ban a member (1h cooldown)\n"
+            f"`{MOD_PREFIX}unban <user_id> reason` - unban a member (1h cooldown)\n"
+            f"`{MOD_PREFIX}kick @user reason` - kick a member\n"
+            f"`{MOD_PREFIX}mute @user <time> reason` - timeout a member (Moderator+, max 14d, e.g. `1d12h`)\n"
+            f"`{MOD_PREFIX}unmute @user reason` - remove a member's timeout (Moderator+)\n"
+            f"`{MOD_PREFIX}warn @user reason` - warn a member (Lead Middleman+)\n"
+            f"`{MOD_PREFIX}warnings @user` - view a member's warnings (Lead Middleman+)\n"
+            f"`{MOD_PREFIX}clearwarn @user` - clear all warnings (Lead Middleman+)\n"
+            f"`{MOD_PREFIX}delwarn @user id` - delete a specific warning (Lead Middleman+)"
         ),
         inline=False,
     )
     embed.add_field(
-        name="Info",
+        name=f"Middleman Utilities (prefix `{UTILITY_PREFIX}`)",
         value=(
-            f"`{PREFIX}info` - view role requirements\n"
-            f"`{PREFIX}perks` - view role perks & permissions\n"
-            f"`{PREFIX}help` - view this menu"
+            f"`{UTILITY_PREFIX}fee` - post the middleman fee info (Trial Middleman+)\n"
+            f"`{UTILITY_PREFIX}confirm @user1 @user2` - post a trade confirmation both parties must click (Trial Middleman+)\n"
+            f"`{UTILITY_PREFIX}temp @user` - strip all staff roles, run again on the same user to restore them (Overseer+)\n"
+            f"`{UTILITY_PREFIX}fill [@user]` - backfill every rank below your (or their) current rank\n"
+            f"`{UTILITY_PREFIX}say <message>` - make the bot say something (setup staff only)\n"
+            f"`{UTILITY_PREFIX}embed <message>` - make the bot say something as an embed (setup staff only)"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Info (slash commands)",
+        value=(
+            "`/info` - view role requirements\n"
+            "`/perks` - view role perks & permissions\n"
+            "`/help` - view this menu\n"
+            "`/guide` - middleman command guide (setup staff only)"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Tags (slash commands)",
+        value=(
+            "`/tag send <name>` - send a saved tag (Trial Middleman+)\n"
+            "`/tag create <name> <content>` - create a tag (Trial Middleman+)\n"
+            "`/tag delete <name>` - delete a tag (Trial Middleman+)\n"
+            "`/tags` - list all tags (Trial Middleman+)"
         ),
         inline=False,
     )
@@ -1590,10 +1644,7 @@ async def help_cmd(ctx: commands.Context):
         name="Roles (slash commands)",
         value=(
             "`/managerole add|remove @user role reason` - manage a member's rank (Overseer+)\n"
-            "`/dm role message` - DM every member with a role (setup staff only)\n"
-            f"`{PREFIX}temp @user` - strip all staff roles, run again on the same user to restore them (Overseer+)\n"
-            f"`{PREFIX}fill [@user]` - backfill every rank below your (or their) current rank\n"
-            f"`{PREFIX}guide` - post the middleman command guide (setup staff only)"
+            "`/dm role message` - DM every member with a role (setup staff only)"
         ),
         inline=False,
     )
@@ -1606,15 +1657,12 @@ async def help_cmd(ctx: commands.Context):
         ),
         inline=False,
     )
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
-@bot.command(name="guide")
-async def guide_cmd(ctx: commands.Context):
-    if not is_setup_staff(ctx.author):
-        await ctx.send("❌ Only setup staff can use this command.")
-        return
-
+@bot.tree.command(name="guide", description="Post the middleman command guide.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def guide_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📖 Middleman Command Guide",
         description="A quick reference of every command relevant to running a trade.",
@@ -1633,23 +1681,23 @@ async def guide_cmd(ctx: commands.Context):
     embed.add_field(
         name="🤝 Running a Trade",
         value=(
-            f"`{PREFIX}fee` - show the middleman fee\n"
-            f"`{PREFIX}confirm @user1 @user2` - both parties click to confirm the trade\n"
-            f"`{PREFIX}tag <name>` - send a saved response\n"
-            f"`{PREFIX}tags` - list all saved tags"
+            f"`{UTILITY_PREFIX}fee` - show the middleman fee\n"
+            f"`{UTILITY_PREFIX}confirm @user1 @user2` - both parties click to confirm the trade\n"
+            "`/tag send <name>` - send a saved response\n"
+            "`/tags` - list all saved tags"
         ),
         inline=False,
     )
     embed.add_field(
         name="👥 Staff Rank Tools",
         value=(
-            f"`{PREFIX}temp @user` - strip staff roles, run again to restore\n"
-            f"`{PREFIX}fill [@user]` - backfill every rank below the current one"
+            f"`{UTILITY_PREFIX}temp @user` - strip staff roles, run again to restore\n"
+            f"`{UTILITY_PREFIX}fill [@user]` - backfill every rank below the current one"
         ),
         inline=False,
     )
     embed.set_footer(text="Levi's MM Services • mm-guide")
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
 # =========================================================
@@ -2015,7 +2063,7 @@ def build_about_embed(guild: Optional[discord.Guild]) -> discord.Embed:
             "🤝 **Verified Middleman Service** — Trained staff hold and confirm both sides of a trade before anything changes hands.\n"
             "🎫 **Private Ticket System** — Every trade gets its own monitored, staff-only ticket.\n"
             "🚨 **Scam Prevention** — Reports are actively investigated and bad actors are removed.\n"
-            "🏅 **Earned Staff Ranks** — Every staff member proves themselves through experience — see `+info` and `+perks`."
+            "🏅 **Earned Staff Ranks** — Every staff member proves themselves through experience — see `/info` and `/perks`."
         ),
         inline=False,
     )
@@ -2070,7 +2118,7 @@ def build_faq_embed() -> discord.Embed:
     )
     embed.add_field(
         name="🏅 How do I become a middleman?",
-        value="Meet our staff requirements and apply — see `+info` for the current rank requirements.",
+        value="Meet our staff requirements and apply — see `/info` for the current rank requirements.",
         inline=False,
     )
     embed.add_field(
@@ -2397,11 +2445,13 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     if isinstance(error, commands.CommandNotFound):
         return
+    if isinstance(error, commands.CheckFailure):
+        return  # wrong prefix for this command (e.g. $ban instead of +ban) — behave as if it doesn't exist
     if isinstance(error, commands.MemberNotFound):
         await ctx.send("⚠️ I couldn't find that member.")
         return
     if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("⚠️ You're missing an argument for that command. Use `+help` to see usage.")
+        await ctx.send(f"⚠️ You're missing an argument for that command. Use `{MOD_PREFIX}ban` etc. or `/help` to see usage.")
         return
     raise error
 
